@@ -350,7 +350,7 @@ const profileLinks = [
 				<button type="button" class="hidden size-10 place-items-center rounded-full text-[#5f6368] hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10 sm:grid" :title="t('updates.buttonLabel')" :aria-label="t('updates.buttonLabel')" @click="openUpdatesModal">
 					<IconBell :size="18" :stroke="2" />
 				</button>
-				<button type="button" class="hidden size-10 place-items-center rounded-full text-[#5f6368] hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10 sm:grid" :title="t('common.settings')">
+				<button type="button" class="hidden size-10 place-items-center rounded-full text-[#5f6368] hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10 sm:grid" :title="t('common.settings')" @click="router.push('/settings')">
 					<IconSettings :size="18" :stroke="2" />
 				</button>
 				<button v-if="isHosted" type="button" class="hidden size-10 place-items-center rounded-full text-[#5f6368] hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10 sm:grid" :title="t('auth.logout')" @click="handleLogout">

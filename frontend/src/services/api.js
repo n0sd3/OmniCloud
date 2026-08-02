@@ -55,6 +55,15 @@ export const settingsApi = {
 			body: JSON.stringify(payload),
 		});
 	},
+	getAppSettings() {
+		return request('/app-settings');
+	},
+	updateAppSettings(payload) {
+		return request('/app-settings', {
+			method: 'PATCH',
+			body: JSON.stringify(payload),
+		});
+	},
 };
 
 export const api = {
@@ -193,6 +202,36 @@ export const api = {
 
 		return response.json();
 	},
+	async uploadFileInChunks(uploadId, file, chunkSize, options = {}) {
+		const total = Math.max(1, Math.ceil(file.size / chunkSize));
+		let lastResponse = null;
+
+		for (let index = 0; index < total; index += 1) {
+			const start = index * chunkSize;
+			const response = await fetch(`${API_BASE_URL}/uploads/${uploadId}/chunk`, {
+				method: 'POST',
+				credentials: 'include',
+				body: file.slice(start, Math.min(start + chunkSize, file.size)),
+				signal: options.signal,
+				headers: {
+					'Content-Type': 'application/octet-stream',
+					'X-Chunk-Index': String(index),
+					'X-Chunk-Last': index === total - 1 ? '1' : '0',
+					'X-File-Name': encodeURIComponent(file.name),
+					'X-File-Type': file.type || 'application/octet-stream',
+				},
+			});
+
+			if (!response.ok) {
+				const payload = await response.json().catch(() => ({ error: 'Upload failed' }));
+				throw new Error(payload.error || 'Upload failed');
+			}
+
+			lastResponse = await response.json();
+		}
+
+		return lastResponse;
+	},
 	createUploadSocket(uploadId) {
 		return new WebSocket(`${WS_BASE_URL}?uploadId=${encodeURIComponent(uploadId)}`);
 	},
@@ -207,6 +246,12 @@ export const api = {
 	},
 	updateSettings(payload) {
 		return settingsApi.updateSettings(payload);
+	},
+	getAppSettings() {
+		return settingsApi.getAppSettings();
+	},
+	updateAppSettings(payload) {
+		return settingsApi.updateAppSettings(payload);
 	},
 	getAllocation() {
 		return request('/allocation');

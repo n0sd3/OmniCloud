@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { db } from '../config/database.js';
 import { env } from '../config/env.js';
 import { createUser, getUserByEmail, getUserById, getOrCreateLocalUser, serializeUser } from './userService.js';
+import { isRegistrationEnabled } from './appSettingsService.js';
 
 const SESSION_BYTES = 32;
 const PASSWORD_MIN_LENGTH = 8;
@@ -86,6 +87,10 @@ export function registerHostedUser({ email, password }) {
 		throw new Error('Registration is only available in hosted mode');
 	}
 
+	if (!isRegistrationEnabled()) {
+		throw new Error('Registration is not available on this instance');
+	}
+
 	const normalizedEmail = normalizeEmail(email);
 	if (!normalizedEmail || !normalizedEmail.includes('@')) {
 		throw new Error('Valid email is required');
@@ -128,7 +133,7 @@ export function getCookieOptions() {
 	return {
 		httpOnly: true,
 		sameSite: 'lax',
-		secure: false,
+		secure: env.appMode === 'hosted',
 		path: '/',
 	};
 }

@@ -5,6 +5,7 @@ import RecentView from '../views/RecentView.vue';
 import SharedWithMeView from '../views/SharedWithMeView.vue';
 import StarredView from '../views/StarredView.vue';
 import QuotaView from '../views/QuotaView.vue';
+import SettingsView from '../views/SettingsView.vue';
 import LoginView from '../views/auth/LoginView.vue';
 import RegisterView from '../views/auth/RegisterView.vue';
 import { useAuthStore } from '../stores/auth';
@@ -53,6 +54,11 @@ const router = createRouter({
 			path: '/quota',
 			name: 'quota',
 			component: QuotaView,
+		},
+		{
+			path: '/settings',
+			name: 'settings',
+			component: SettingsView,
 		},
 	],
 });
