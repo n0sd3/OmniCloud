@@ -47,7 +47,7 @@ function handleContextMenu(event) {
 				</div>
 				<IconStarFilled v-if="showStar && item.is_starred && item.capabilities?.starred" :size="16" :stroke="0" class="shrink-0 text-amber-400" />
 			</div>
-			<div class="min-w-0">
+			<div class="w-full min-w-0">
 				<TruncateMarquee as="p" class="text-sm font-semibold text-[#202124] dark:text-slate-100" :text="displayName" />
 				<div class="mt-1 flex min-w-0 items-center gap-2 text-xs text-[#5f6368] dark:text-slate-400">
 					<div v-if="providerIcon(item.provider)" class="flex size-6 shrink-0 items-center justify-center rounded-full bg-white dark:bg-slate-900/70">

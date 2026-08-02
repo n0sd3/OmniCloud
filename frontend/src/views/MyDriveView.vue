@@ -341,21 +341,21 @@ onBeforeUnmount(() => {
 
 <template>
 	<DriveShell current-section="drive" @new-folder="createNewFolder" @upload-files="openFilePicker" @upload-folder="openFolderPicker">
-		<div id="MyDriveView" class="relative min-h-[calc(100vh-84px)] scroll-mt-20 rounded-[24px] bg-white px-4 py-[18px] pb-5 text-[#202124] dark:bg-slate-800 dark:text-slate-100 sm:px-6" @click="clearSelection" @dragenter.prevent="handleDragEnter" @dragover.prevent="handleDragEnter" @dragleave.prevent="handleDragLeave" @drop.prevent="handleDrop">
+		<div id="MyDriveView" class="relative flex min-h-[calc(100vh-84px)] scroll-mt-20 flex-col rounded-[24px] bg-white px-4 py-[18px] pb-5 text-[#202124] dark:bg-slate-800 dark:text-slate-100 sm:px-6" @click="clearSelection" @dragenter.prevent="handleDragEnter" @dragover.prevent="handleDragEnter" @dragleave.prevent="handleDragLeave" @drop.prevent="handleDrop">
 			<input ref="fileInputRef" class="hidden" type="file" multiple @change="onFileInputChange" />
 			<input ref="folderInputRef" class="hidden" type="file" multiple webkitdirectory directory @change="onFolderInputChange" />
 
 			<div v-if="isDragActive" class="pointer-events-none absolute inset-4 z-20 grid place-items-center rounded-[24px] border-2 border-dashed border-[#1a73e8] bg-[#e8f0fe]/90 text-center dark:bg-slate-900/90">
 				<div>
-					<p class="text-lg font-semibold text-[#1a73e8]">Lepas file di sini untuk upload</p>
-					<p class="mt-2 text-sm text-[#5f6368] dark:text-slate-400">File dan folder akan diunggah ke lokasi Drive saat ini.</p>
+					<p class="text-lg font-semibold text-[#1a73e8]">{{ t('drive.dropZoneTitle') }}</p>
+					<p class="mt-2 text-sm text-[#5f6368] dark:text-slate-400">{{ t('drive.dropZoneDesc') }}</p>
 				</div>
 			</div>
 
 			<div class="mb-2 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
 				<nav aria-label="Breadcrumb" class="m-0 flex flex-wrap items-center gap-1 text-2xl font-normal text-[#202124] dark:text-slate-100">
 					<template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
-						<button type="button" class="max-w-[220px] truncate text-left transition hover:text-[#1a73e8] dark:hover:text-sky-300" @click="fileTreeStore.navigate(crumb.path)">{{ crumb.label === 'Root' ? 'Drive Saya' : crumb.label }}</button>
+						<button type="button" class="max-w-[220px] truncate text-left transition hover:text-[#1a73e8] dark:hover:text-sky-300" @click="fileTreeStore.navigate(crumb.path)">{{ crumb.label === 'Root' ? t('drive.title') : crumb.label }}</button>
 						<IconChevronRight v-if="index < breadcrumbs.length - 1" :size="18" :stroke="2" class="mx-1 text-[#5f6368] dark:text-slate-400" />
 					</template>
 				</nav>
@@ -373,10 +373,10 @@ onBeforeUnmount(() => {
 				<FileListFilterBar v-else :type-options="typeOptions" :owner-options="ownerOptions" :updated-options="updatedOptions" :selected-type-filter="selectedTypeFilter" :selected-owner-filter="selectedOwnerFilter" :selected-updated-filter="selectedUpdatedFilter" :active-filter-menu="activeFilterMenu" v-model:search-term="searchTerm" @toggle-filter-menu="toggleFilterMenu" @apply-filter="applyFilter" @clear-filter="clearFilter" />
 			</div>
 
-			<div v-if="!isGridView" class="relative">
-				<div class="custom-scrollbar overflow-x-auto rounded-2xl border border-[#e0e3e7] bg-white dark:border-slate-700 dark:bg-slate-800">
-					<div class="min-w-[760px]">
-						<div class="custom-scrollbar max-h-[min(70vh,780px)] overflow-y-auto overflow-x-hidden" @scroll="handleListScroll">
+			<div v-if="!isGridView" class="relative flex flex-1 flex-col">
+				<div class="custom-scrollbar flex flex-1 flex-col overflow-x-auto rounded-2xl border border-[#e0e3e7] bg-white dark:border-slate-700 dark:bg-slate-800">
+					<div class="flex min-w-[760px] flex-1 flex-col">
+						<div class="custom-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden" @scroll="handleListScroll">
 							<FileListHeader :sortable="true" :sort-by="sortBy" :sort-direction="sortDirection" @sort="setSort" />
 
 							<FileListRow v-for="item in renderedFiles" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" name-field="display_name" @select="(event) => selectItem(event, item)" @open="openItemOnDoubleClick(item)" @contextmenu="(event) => openContextMenu(event, item)" />

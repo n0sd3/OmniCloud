@@ -131,6 +131,8 @@
 		"uploadPipeline": "Upload pipeline",
 		"dragDropTitle": "Drag, drop, and stream directly to the target cloud",
 		"dragDropDesc": "File payloads pass through the Node.js proxy, while metadata is mirrored locally and progress is reported by WebSocket.",
+		"dropZoneTitle": "Drop files here to upload",
+		"dropZoneDesc": "Files and folders will be uploaded to the current Drive location.",
 		"chooseFiles": "Choose files",
 		"unifiedExplorer": "Unified file explorer",
 		"virtualPooling": "Virtual path pooling",
@@ -173,6 +175,10 @@
 		"created": "Created",
 		"provider": "Provider",
 		"remoteId": "Remote ID"
+	},
+	"settings": {
+		"newAccounts": "New account registration",
+		"newAccountsDesc": "Allow anyone to create a new account on this instance."
 	},
 	"quota": {
 		"title": "Storage",
@@ -321,7 +327,9 @@
 		"cancel": "Cancel",
 		"dismiss": "Dismiss",
 		"minimize": "Minimize",
-		"expand": "Expand"
+		"expand": "Expand",
+		"chunkedPrompt": "\"{name}\" ({size}) is over the {limit} per-request limit of the Cloudflare proxy in front of this app. Send it in chunks instead? This applies to every oversized file in this batch.",
+		"chunkedDeclined": "Cancelled: file exceeds the Cloudflare request limit and chunked upload was declined."
 	},
 	"language": {
 		"title": "Select Language",

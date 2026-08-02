@@ -131,6 +131,8 @@
 		"uploadPipeline": "Upload pipeline",
 		"dragDropTitle": "Drag, drop, and stream directly to the target cloud",
 		"dragDropDesc": "File payloads pass through the Node.js proxy, while metadata is mirrored locally and progress is reported by WebSocket.",
+		"dropZoneTitle": "Lepas file di sini untuk upload",
+		"dropZoneDesc": "File dan folder akan diunggah ke lokasi Drive saat ini.",
 		"chooseFiles": "Choose files",
 		"unifiedExplorer": "Unified file explorer",
 		"virtualPooling": "Virtual path pooling",
@@ -173,6 +175,10 @@
 		"created": "Dibuat",
 		"provider": "Provider",
 		"remoteId": "ID jarak jauh"
+	},
+	"settings": {
+		"newAccounts": "Pendaftaran akun baru",
+		"newAccountsDesc": "Izinkan siapa saja membuat akun baru di instance ini."
 	},
 	"quota": {
 		"title": "Penyimpanan",
@@ -321,7 +327,9 @@
 		"cancel": "Batalkan",
 		"dismiss": "Tutup",
 		"minimize": "Minimalkan",
-		"expand": "Perluas"
+		"expand": "Perluas",
+		"chunkedPrompt": "\"{name}\" ({size}) melebihi batas {limit} per permintaan dari proxy Cloudflare di depan aplikasi ini. Kirim dalam potongan? Ini berlaku untuk semua berkas berukuran besar pada batch ini.",
+		"chunkedDeclined": "Dibatalkan: berkas melebihi batas permintaan Cloudflare dan unggahan bertahap ditolak."
 	},
 	"language": {
 		"title": "Pilih Bahasa",

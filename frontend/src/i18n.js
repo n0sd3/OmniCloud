@@ -3,7 +3,7 @@ import en from './locales/en.json';
 import id from './locales/id.json';
 
 const SUPPORTED_LOCALES = ['id', 'en'];
-const DEFAULT_LOCALE = 'id';
+const DEFAULT_LOCALE = 'en';
 
 function detectLocale() {
 	const stored = window.localStorage.getItem('omnicloud-language');

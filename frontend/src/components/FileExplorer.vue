@@ -1,8 +1,9 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { IconChevronRight, IconDownload, IconFileDescription, IconFolder } from '@tabler/icons-vue';
+import { IconChevronRight, IconDownload } from '@tabler/icons-vue';
 import { api } from '../services/api';
+import { getFileIcon, getFileCategory } from '../composables/useFileType';
 
 const { t } = useI18n();
 
@@ -17,6 +18,12 @@ const props = defineProps({
 const emit = defineEmits(['navigate', 'search']);
 
 const visibleFiles = computed(() => props.files.slice(0, 500));
+
+const thumbnailErrors = reactive(new Set());
+
+function hasThumbnail(file) {
+	return !file.is_folder && getFileCategory(file) === 'image' && !thumbnailErrors.has(file.id);
+}
 
 function openFolder(file) {
 	if (!file.is_folder) return;
@@ -46,7 +53,15 @@ function openFolder(file) {
 			<article v-for="file in visibleFiles" :key="file.id" class="flex flex-col gap-3 border-t border-[#eef2f7] px-5 py-4 first:border-t-0 sm:flex-row sm:items-center sm:justify-between" :class="file.is_folder ? 'cursor-pointer hover:bg-black/[0.02]' : 'bg-white'" @dblclick="openFolder(file)">
 				<div>
 					<div class="flex items-center gap-2.5">
-						<component :is="file.is_folder ? IconFolder : IconFileDescription" :size="18" :stroke="1.8" class="text-[#5f6368]" />
+						<img
+							v-if="hasThumbnail(file)"
+							:src="api.previewUrl(file.id)"
+							:alt="file.display_name || file.file_name"
+							class="h-8 w-8 rounded-lg object-cover"
+							loading="lazy"
+							@error="thumbnailErrors.add(file.id)"
+						/>
+						<component :is="getFileIcon(file)" v-else :size="18" :stroke="1.8" class="text-[#5f6368]" />
 						<strong class="text-[#202124]">{{ file.display_name || file.file_name }}</strong>
 					</div>
 					<p class="mt-1 text-sm text-[#5f6368]">{{ file.virtual_path }}</p>
