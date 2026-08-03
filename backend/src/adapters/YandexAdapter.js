@@ -1,5 +1,5 @@
 import { Readable } from 'stream';
-import { BaseCloudAdapter } from './BaseCloudAdapter.js';
+import { BaseCloudAdapter, buildRangeHeader } from './BaseCloudAdapter.js';
 import { decryptJson } from '../utils/crypto.js';
 import { updateAccountCredentials } from '../services/accountService.js';
 
@@ -28,6 +28,10 @@ export class YandexAdapter extends BaseCloudAdapter {
 	constructor(account) {
 		super(account);
 		this.tokenCache = null;
+	}
+
+	getCapabilities() {
+		return { ...super.getCapabilities(), supportsRange: true };
 	}
 
 	readCredentials() {
@@ -251,7 +255,7 @@ export class YandexAdapter extends BaseCloudAdapter {
 		);
 	}
 
-	async getDownloadStream(fileRecord) {
+	async getDownloadStream(fileRecord, options = {}) {
 		const info = await this.request('/resources/download', {
 			query: { path: this.resolvePath(fileRecord) },
 		});
@@ -259,7 +263,8 @@ export class YandexAdapter extends BaseCloudAdapter {
 			throw new Error('Yandex did not return a download URL');
 		}
 
-		const response = await fetch(info.href);
+		const range = buildRangeHeader(options);
+		const response = await fetch(info.href, range ? { headers: { Range: range } } : undefined);
 		if (!response.ok || !response.body) {
 			throw new Error('Failed to download file from Yandex Disk');
 		}

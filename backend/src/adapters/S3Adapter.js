@@ -9,7 +9,7 @@ import {
 	PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import { BaseCloudAdapter } from './BaseCloudAdapter.js';
+import { BaseCloudAdapter, buildRangeHeader } from './BaseCloudAdapter.js';
 import { guessMimeType } from '../utils/mime.js';
 import { decryptJson } from '../utils/crypto.js';
 
@@ -44,6 +44,10 @@ export class S3Adapter extends BaseCloudAdapter {
 		super(account);
 		this.clientCache = null;
 		this.bucketCache = null;
+	}
+
+	getCapabilities() {
+		return { ...super.getCapabilities(), supportsRange: true };
 	}
 
 	readCredentials() {
@@ -214,14 +218,16 @@ export class S3Adapter extends BaseCloudAdapter {
 		};
 	}
 
-	async getDownloadStream(fileRecord) {
+	async getDownloadStream(fileRecord, options = {}) {
 		const { client, bucket } = this.getClient();
 		const key = fileRecord.remote_file_id || toKey(fileRecord.virtual_path, fileRecord.file_name);
+		const range = buildRangeHeader(options);
 
 		const response = await client.send(
 			new GetObjectCommand({
 				Bucket: bucket,
 				Key: key,
+				...(range ? { Range: range } : {}),
 			}),
 		);
 

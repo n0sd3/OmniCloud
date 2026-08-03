@@ -1,5 +1,5 @@
 import { Readable } from 'stream';
-import { BaseCloudAdapter } from './BaseCloudAdapter.js';
+import { BaseCloudAdapter, buildRangeHeader } from './BaseCloudAdapter.js';
 import { guessMimeType } from '../utils/mime.js';
 import { decryptJson } from '../utils/crypto.js';
 
@@ -45,6 +45,10 @@ export class DropboxAdapter extends BaseCloudAdapter {
 	constructor(account) {
 		super(account);
 		this.accessTokenCache = null;
+	}
+
+	getCapabilities() {
+		return { ...super.getCapabilities(), supportsRange: true };
 	}
 
 	readCredentials() {
@@ -122,7 +126,7 @@ export class DropboxAdapter extends BaseCloudAdapter {
 		}
 	}
 
-	async content(path, { args, body, contentType = 'application/octet-stream' } = {}) {
+	async content(path, { args, body, contentType = 'application/octet-stream', headers = {} } = {}) {
 		return this.requestWithReauth(async (accessToken) => {
 			const response = await fetch(`https://content.dropboxapi.com/2${path}`, {
 				method: 'POST',
@@ -130,6 +134,7 @@ export class DropboxAdapter extends BaseCloudAdapter {
 					Authorization: `Bearer ${accessToken}`,
 					'Dropbox-API-Arg': JSON.stringify(args),
 					...(contentType ? { 'Content-Type': contentType } : {}),
+					...headers,
 				},
 				body,
 				...(body ? { duplex: 'half' } : {}),
@@ -281,13 +286,15 @@ export class DropboxAdapter extends BaseCloudAdapter {
 		});
 	}
 
-	async getDownloadStream(fileRecord) {
+	async getDownloadStream(fileRecord, options = {}) {
+		const range = buildRangeHeader(options);
 		const response = await this.content('/files/download', {
 			args: {
 				path: fileRecord.remote_file_id || joinDropboxPath(fileRecord.virtual_path, fileRecord.file_name),
 			},
 			body: null,
 			contentType: '',
+			...(range ? { headers: { Range: range } } : {}),
 		});
 
 		if (!response.ok) {

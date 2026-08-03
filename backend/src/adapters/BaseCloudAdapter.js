@@ -1,6 +1,14 @@
 import { Readable, Transform } from 'stream';
 import { randomUUID } from 'crypto';
 
+// Monta o header Range HTTP a partir de { start, end }. Compartilhado pelos
+// adapters que falam HTTP direto.
+export function buildRangeHeader(range) {
+	if (!range || !Number.isFinite(Number(range.start))) return null;
+	const end = Number.isFinite(Number(range.end)) ? Number(range.end) : '';
+	return `bytes=${Number(range.start)}-${end}`;
+}
+
 export class BaseCloudAdapter {
 	constructor(account) {
 		this.account = account;
@@ -11,6 +19,7 @@ export class BaseCloudAdapter {
 			starred: false,
 			rename: true,
 			delete: true,
+			supportsRange: false,
 		};
 	}
 
@@ -64,7 +73,7 @@ export class BaseCloudAdapter {
 		};
 	}
 
-	async getDownloadStream(fileRecord) {
+	async getDownloadStream(fileRecord, _options = {}) {
 		const content = `Simulated download for ${fileRecord.file_name} from ${this.account.provider}`;
 		return Readable.from([content]);
 	}

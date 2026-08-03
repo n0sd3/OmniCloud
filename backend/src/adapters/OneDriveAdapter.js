@@ -1,5 +1,5 @@
 import { Readable } from 'stream';
-import { BaseCloudAdapter } from './BaseCloudAdapter.js';
+import { BaseCloudAdapter, buildRangeHeader } from './BaseCloudAdapter.js';
 import { decryptJson } from '../utils/crypto.js';
 
 function normalizePath(input = '/') {
@@ -23,6 +23,7 @@ export class OneDriveAdapter extends BaseCloudAdapter {
 			starred: false,
 			rename: true,
 			delete: true,
+			supportsRange: true,
 		};
 	}
 
@@ -338,9 +339,11 @@ export class OneDriveAdapter extends BaseCloudAdapter {
 		};
 	}
 
-	async getDownloadStream(fileRecord) {
+	async getDownloadStream(fileRecord, options = {}) {
+		const range = buildRangeHeader(options);
 		const response = await this.requestGraph(
 			`https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileRecord.remote_file_id)}/content`,
+			range ? { headers: { Range: range } } : {},
 		);
 
 		if (!response.ok) {

@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { BaseCloudAdapter } from './BaseCloudAdapter.js';
+import { BaseCloudAdapter, buildRangeHeader } from './BaseCloudAdapter.js';
 import { decryptJson } from '../utils/crypto.js';
 
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
@@ -20,6 +20,7 @@ export class GoogleDriveAdapter extends BaseCloudAdapter {
 			starred: true,
 			rename: true,
 			delete: true,
+			supportsRange: true,
 		};
 	}
 
@@ -300,8 +301,9 @@ export class GoogleDriveAdapter extends BaseCloudAdapter {
 		};
 	}
 
-	async getDownloadStream(fileRecord) {
+	async getDownloadStream(fileRecord, options = {}) {
 		const drive = await this.getDriveClient();
+		const range = buildRangeHeader(options);
 		const response = await drive.files.get(
 			{
 				fileId: fileRecord.remote_file_id,
@@ -309,6 +311,7 @@ export class GoogleDriveAdapter extends BaseCloudAdapter {
 			},
 			{
 				responseType: 'stream',
+				...(range ? { headers: { Range: range } } : {}),
 			},
 		);
 
