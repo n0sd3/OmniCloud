@@ -26,8 +26,10 @@ const [
 
 const cacheStore = createLocalFileStore({ rootDir: process.env.FILE_CACHE_PATH });
 const originalGetDownloadStream = BaseCloudAdapter.prototype.getDownloadStream;
+const originalListSharedWithMe = BaseCloudAdapter.prototype.listSharedWithMe;
 const backgroundDownload = { pending: false, release: null };
 let adapterBody = 'remote-v1';
+let sharedDownloadUserId;
 let backgroundFile;
 let downloadFile;
 let server;
@@ -81,12 +83,24 @@ test.before(async () => {
 	});
 
 	BaseCloudAdapter.prototype.getDownloadStream = async function getDownloadStream(file) {
+		if (file.remote_file_id === 'shared-remote') {
+			sharedDownloadUserId = file.user_id;
+			return Readable.from(['shared-v1']);
+		}
 		if (file.id === backgroundFile.id) {
 			backgroundDownload.pending = true;
 			await new Promise((resolve) => { backgroundDownload.release = resolve; });
 		}
 		return Readable.from([adapterBody]);
 	};
+	BaseCloudAdapter.prototype.listSharedWithMe = async () => [{
+		file_name: 'shared.txt',
+		is_folder: false,
+		size: 9,
+		mime_type: 'text/plain',
+		remote_file_id: 'shared-remote',
+		modifiedTime: '2026-08-03T12:00:00.000Z',
+	}];
 
 	const app = createApp();
 	server = app.listen(0);
@@ -97,6 +111,7 @@ test.before(async () => {
 test.after(async () => {
 	backgroundDownload.release?.();
 	BaseCloudAdapter.prototype.getDownloadStream = originalGetDownloadStream;
+	BaseCloudAdapter.prototype.listSharedWithMe = originalListSharedWithMe;
 	server.close();
 	db.close();
 	await fs.rm(taskRoot, { recursive: true, force: true });
@@ -118,4 +133,15 @@ test('first download is remote and the next download is local', async () => {
 	await waitForCache(downloadFile);
 	adapterBody = 'remote-v2';
 	assert.equal(await (await fetch(downloadUrl)).text(), 'remote-v1');
+});
+
+test('shared listing and download retain the authenticated user identity', async () => {
+	const listing = await fetch(`${baseUrl}/api/files?shared=1`);
+	const shared = (await listing.json()).data[0];
+	assert.equal(shared.user_id, LOCAL_USER_ID);
+
+	const download = await fetch(`${baseUrl}/api/files/${encodeURIComponent(shared.id)}/download`);
+	assert.equal(await download.text(), 'shared-v1');
+	assert.equal(sharedDownloadUserId, LOCAL_USER_ID);
+	await waitForCache(shared);
 });

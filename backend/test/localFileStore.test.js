@@ -119,9 +119,64 @@ test('concurrent versions cannot publish mixed content and metadata', async () =
 	assert.equal(await read(await store.openReadStream(newer)), 'ghijkl');
 });
 
+test('read waits until data and sidecar publication complete', async () => {
+	await store.writeFromStream(file, Readable.from(['abcdef']));
+	const replacement = { ...file, remote_modified_time: '2026-08-03T00:00:00Z' };
+	const { sidecar } = pathsFor(file);
+	const rename = fs.rename;
+	let sidecarReached;
+	let releaseSidecar;
+	const waitForSidecar = new Promise((resolve) => { sidecarReached = resolve; });
+	const holdSidecar = new Promise((resolve) => { releaseSidecar = resolve; });
+
+	fs.rename = async (from, to) => {
+		if (to === sidecar && JSON.parse(await fs.readFile(from, 'utf8')).remoteModifiedTime === replacement.remote_modified_time) {
+			sidecarReached();
+			await holdSidecar;
+		}
+		return rename(from, to);
+	};
+	try {
+		const replacementWrite = store.writeFromStream(replacement, Readable.from(['ghijkl']));
+		await waitForSidecar;
+		const readingOld = store.openReadStream(file).then((stream) => stream ? read(stream) : null);
+		assert.equal(await Promise.race([
+			readingOld.then(() => true),
+			new Promise((resolve) => setTimeout(() => resolve(false), 25)),
+		]), false);
+		releaseSidecar();
+		await replacementWrite;
+		assert.equal(await readingOld, null);
+	} finally {
+		fs.rename = rename;
+		releaseSidecar();
+	}
+
+	assert.equal(await read(await store.openReadStream(replacement)), 'ghijkl');
+});
+
+test('an older slow invocation cannot overwrite a newer generation', async () => {
+	const newer = { ...file, remote_modified_time: '2026-08-03T00:00:00Z' };
+	let releaseOlder;
+	const holdOlder = new Promise((resolve) => { releaseOlder = resolve; });
+	const olderStream = Readable.from((async function* generateOlder() {
+		await holdOlder;
+		yield 'abcdef';
+	})());
+
+	const olderWrite = store.writeFromStream(file, olderStream);
+	await store.writeFromStream(newer, Readable.from(['ghijkl']));
+	releaseOlder();
+	await olderWrite;
+
+	assert.equal(await store.getValidPath(file), null);
+	assert.equal(await read(await store.openReadStream(newer)), 'ghijkl');
+});
+
 test('conservatively invalidates records without a remote version', async () => {
 	const unversioned = { ...file, remote_modified_time: null };
 	await store.writeFromStream(unversioned, Readable.from(['abcdef']));
+	assert.equal(await read(await store.openReadStream(unversioned)), 'abcdef');
 	await store.reconcile([unversioned], [unversioned]);
 	assert.equal(await store.getValidPath(unversioned), null);
 });

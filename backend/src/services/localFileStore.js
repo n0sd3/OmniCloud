@@ -21,7 +21,7 @@ function metadataFor(file) {
 }
 
 export function createLocalFileStore({ rootDir, logger = console }) {
-	const publications = new Map();
+	const publicationStates = new Map();
 	const keyFor = (file) => crypto
 		.createHash('sha256')
 		.update(JSON.stringify([file.user_id, file.cloud_account_id, file.remote_file_id]))
@@ -32,11 +32,23 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 	};
 	const tempPath = (target) => `${target}.${crypto.randomUUID()}.tmp`;
 	const warn = (message) => logger?.warn?.(message);
+	const beginPublication = (file) => {
+		const key = keyFor(file);
+		const state = publicationStates.get(key) || { active: 0, latest: 0, pending: Promise.resolve() };
+		state.active += 1;
+		state.latest += 1;
+		publicationStates.set(key, state);
+		return { key, state, generation: state.latest };
+	};
+	const endPublication = ({ key, state }) => {
+		state.active -= 1;
+		if (!state.active && publicationStates.get(key) === state) publicationStates.delete(key);
+	};
 
 	async function readValid(file) {
+		await publicationStates.get(keyFor(file))?.pending.catch(() => {});
 		try {
 			const expected = metadataFor(file);
-			if (!expected.remoteModifiedTime) return null;
 			const paths = pathsFor(file);
 			const metadata = JSON.parse(await fsp.readFile(paths.sidecar, 'utf8'));
 			const stat = await fsp.stat(paths.data);
@@ -76,16 +88,23 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		}
 	}
 
-	async function publish(dataTemp, file) {
-		const key = keyFor(file);
-		const previous = publications.get(key) || Promise.resolve();
-		const current = previous.catch(() => {}).then(() => publishGeneration(dataTemp, file));
-		publications.set(key, current);
-		try {
-			await current;
-		} finally {
-			if (publications.get(key) === current) publications.delete(key);
-		}
+	async function publish(dataTemp, file, request) {
+		const { state, generation } = request;
+		const current = state.pending.catch(() => {}).then(async () => {
+			if (generation !== state.latest) {
+				await fsp.rm(dataTemp, { force: true });
+				return false;
+			}
+			await publishGeneration(dataTemp, file);
+			if (generation !== state.latest) {
+				const { data, sidecar } = pathsFor(file);
+				await Promise.all([fsp.rm(data, { force: true }), fsp.rm(sidecar, { force: true })]);
+				return false;
+			}
+			return true;
+		});
+		state.pending = current;
+		return current;
 	}
 
 	return {
@@ -99,7 +118,7 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		},
 
 		async writeFromStream(file, stream) {
-			await fsp.mkdir(rootDir, { recursive: true });
+			const publication = beginPublication(file);
 			const dataTemp = tempPath(pathsFor(file).data);
 			let bytes = 0;
 			const counter = new Transform({
@@ -109,12 +128,15 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 				},
 			});
 			try {
+				await fsp.mkdir(rootDir, { recursive: true });
 				await pipeline(stream, counter, createWriteStream(dataTemp, { flags: 'wx' }));
 				if (bytes !== Number(file.size || 0)) throw new Error('Local file cache byte count mismatch');
-				await publish(dataTemp, file);
+				await publish(dataTemp, file, publication);
 			} catch (error) {
 				await fsp.rm(dataTemp, { force: true });
 				throw error;
+			} finally {
+				endPublication(publication);
 			}
 		},
 
@@ -215,17 +237,19 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		},
 
 		async commitCapture(capture, file) {
-			const result = await capture.completed;
-			if (!result || result.size !== Number(file.size || 0)) {
-				await capture.discard();
-				return false;
-			}
+			const publication = beginPublication(file);
 			try {
-				await publish(result.dataTemp, file);
-				return true;
+				const result = await capture.completed;
+				if (!result || result.size !== Number(file.size || 0)) {
+					await capture.discard();
+					return false;
+				}
+				return await publish(result.dataTemp, file, publication);
 			} catch (error) {
 				warn(`Local file cache commit failed: ${error.message}`);
 				return false;
+			} finally {
+				endPublication(publication);
 			}
 		},
 

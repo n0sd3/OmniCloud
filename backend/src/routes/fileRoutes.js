@@ -20,6 +20,7 @@ function mapSharedItem(userId, account, item, localFile = getFileByRemoteId(user
 		...(localFile || {}),
 		...item,
 		id: encodeSharedFileId(account.id, item.remote_file_id),
+		user_id: userId,
 		cloud_account_id: account.id,
 		provider: localFile?.provider || account.provider,
 		email: item.owner_email || localFile?.email || account.email,
@@ -88,6 +89,7 @@ async function getSharedFileContext(userId, fileId) {
 		file: {
 			...file,
 			id: fileId,
+			user_id: userId,
 			cloud_account_id: account.id,
 			provider: account.provider,
 			email: file.owner_email || account.email,
