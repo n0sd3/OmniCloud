@@ -247,7 +247,9 @@ Se a prop não existir, adicioná-la em `defineProps` como `canDelete: { type: B
 
 - [ ] **Step 3: Migrar `MyDriveView.vue`**
 
-No bloco `<script setup>`, remover os imports de `FileListFilterBar`, `FileListSelectionBar`, `FileListViewModeToggle`, `FileListHeader`, `FileListRow`, `FileListGridCard`, `FileListContextMenu`, `FilePreviewModal`, `LoadingState`, `useIncrementalRender` e `providerLabel`, e adicionar:
+No bloco `<script setup>`, remover os imports de `FileListFilterBar`, `FileListSelectionBar`, `FileListViewModeToggle`, `FileListHeader`, `FileListRow`, `FileListGridCard`, `FileListContextMenu`, `FilePreviewModal`, `LoadingState` e `useIncrementalRender`, e adicionar:
+
+**Manter** o import de `providerLabel` e o de `FileDetailsModal`: o modal continua no template até a Task 3 e depende dos dois.
 
 ```js
 import FileListSurface from '../components/FileListSurface.vue';
@@ -287,7 +289,7 @@ No template, substituir todo o conteúdo entre `<DriveShell ...>` e `<FloatingPr
 	</template>
 
 	<template #selection-prefix="{ primary }">
-		<button v-if="primary?.is_folder && primary" type="button" class="inline-flex size-9 items-center justify-center rounded-full transition enabled:hover:bg-[#d2e3fc] dark:enabled:hover:bg-sky-500/20" :title="t('common.open')" @click="openSelectedItem">
+		<button v-if="primary?.is_folder" type="button" class="inline-flex size-9 items-center justify-center rounded-full transition enabled:hover:bg-[#d2e3fc] dark:enabled:hover:bg-sky-500/20" :title="t('common.open')" @click="openSelectedItem">
 			<IconFolder :size="18" :stroke="2" />
 		</button>
 	</template>
