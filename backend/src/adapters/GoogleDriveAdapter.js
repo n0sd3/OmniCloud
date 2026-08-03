@@ -49,6 +49,25 @@ export class GoogleDriveAdapter extends BaseCloudAdapter {
 		return google.drive({ version: 'v3', auth });
 	}
 
+	async listFileNames(remoteParentId) {
+		const drive = await this.getDriveClient();
+		const names = [];
+		let pageToken;
+
+		do {
+			const response = await drive.files.list({
+				q: `'${escapeDriveQueryValue(remoteParentId)}' in parents and trashed = false`,
+				fields: 'nextPageToken, files(name)',
+				pageSize: 1000,
+				pageToken,
+			});
+			names.push(...(response.data.files || []).map((file) => file.name));
+			pageToken = response.data.nextPageToken || undefined;
+		} while (pageToken);
+
+		return names;
+	}
+
 	async ensureRemotePath(virtualPath = '/') {
 		const normalizedPath = normalizePath(virtualPath);
 		if (normalizedPath === '/') {
