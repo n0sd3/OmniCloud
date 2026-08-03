@@ -48,6 +48,10 @@ export function createFileCacheService({
 	}
 
 	function warmFile({ userId, file, adapter }) {
+		// ponytail: arquivos sem conteudo binario (Google Docs nativos) reportam size 0 e nao sao
+		// baixaveis via alt=media; o store tambem rejeitaria o byte count. Nao vale cachear.
+		if (!Number(file.size)) return Promise.resolve();
+
 		const key = fileKey(userId, file);
 		const inflight = inflightDownloads.get(key);
 		if (inflight) return inflight;

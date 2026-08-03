@@ -35,6 +35,25 @@ const EXTENSION_MIME_MAP = {
 	sql: 'application/sql', ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2',
 };
 
+// Arquivos nativos do Google (Docs/Sheets/Slides/Drawings) nao tem conteudo binario:
+// so podem ser baixados via files.export, convertidos para um destes formatos.
+const GOOGLE_DOCS_EXPORT_MAP = {
+	'application/vnd.google-apps.document': { mimeType: 'application/pdf', extension: 'pdf' },
+	'application/vnd.google-apps.spreadsheet': { mimeType: EXTENSION_MIME_MAP.xlsx, extension: 'xlsx' },
+	'application/vnd.google-apps.presentation': { mimeType: EXTENSION_MIME_MAP.pptx, extension: 'pptx' },
+	'application/vnd.google-apps.drawing': { mimeType: 'image/png', extension: 'png' },
+	'application/vnd.google-apps.script': { mimeType: 'application/json', extension: 'json' },
+};
+
+export function googleDocsExport(record) {
+	return GOOGLE_DOCS_EXPORT_MAP[record?.mime_type || record?.mimeType] || null;
+}
+
+export function exportedFileName(fileName, extension) {
+	const name = String(fileName || 'download');
+	return name.toLowerCase().endsWith(`.${extension}`) ? name : `${name}.${extension}`;
+}
+
 export function guessMimeType(fileName) {
 	if (!fileName) return 'application/octet-stream';
 	const extension = String(fileName).toLowerCase().split('.').pop();

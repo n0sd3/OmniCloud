@@ -84,6 +84,19 @@ test('folder warming returns immediately and ignores folders and descendants', (
 	assert.deepEqual(scheduledNames, ['direct.jpg']);
 });
 
+test('files without binary content are never downloaded', async () => {
+	const adapter = createAdapter({ getStream: () => { throw new Error('provider called for google doc'); } });
+	const cache = createFileCacheService({ store: createStore() });
+
+	await cache.warmFile({
+		userId: 'u1',
+		file: { ...file, size: 0, mime_type: 'application/vnd.google-apps.document' },
+		adapter,
+	});
+
+	assert.equal(adapter.downloadCalls, 0);
+});
+
 test('folder marker expires after one hour', () => {
 	let now = 0;
 	const input = {

@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { BaseCloudAdapter, buildRangeHeader } from './BaseCloudAdapter.js';
 import { decryptJson } from '../utils/crypto.js';
+import { googleDocsExport } from '../utils/mime.js';
 
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 
@@ -303,6 +304,17 @@ export class GoogleDriveAdapter extends BaseCloudAdapter {
 
 	async getDownloadStream(fileRecord, options = {}) {
 		const drive = await this.getDriveClient();
+		const exportTarget = googleDocsExport(fileRecord);
+
+		if (exportTarget) {
+			// ponytail: export nao aceita Range; arquivos nativos nao tem size conhecido mesmo.
+			const exported = await drive.files.export(
+				{ fileId: fileRecord.remote_file_id, mimeType: exportTarget.mimeType },
+				{ responseType: 'stream' },
+			);
+			return exported.data;
+		}
+
 		const range = buildRangeHeader(options);
 		const response = await drive.files.get(
 			{
