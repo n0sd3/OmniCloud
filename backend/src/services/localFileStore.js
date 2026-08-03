@@ -59,12 +59,18 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		const dataStat = await fsp.stat(dataTemp);
 		if (dataStat.size !== metadata.size) throw new Error('Local file cache byte count mismatch');
 		const sidecarTemp = tempPath(paths.sidecar);
+		let dataPublished = false;
 		try {
 			await fsp.writeFile(sidecarTemp, JSON.stringify(metadata), { flag: 'wx' });
 			await fsp.rename(dataTemp, paths.data);
+			dataPublished = true;
 			await fsp.rename(sidecarTemp, paths.sidecar);
 		} catch (error) {
-			await Promise.allSettled([fsp.rm(dataTemp, { force: true }), fsp.rm(sidecarTemp, { force: true })]);
+			await Promise.allSettled([
+				fsp.rm(dataTemp, { force: true }),
+				fsp.rm(sidecarTemp, { force: true }),
+				...(dataPublished ? [fsp.rm(paths.data, { force: true }), fsp.rm(paths.sidecar, { force: true })] : []),
+			]);
 			throw error;
 		}
 	}

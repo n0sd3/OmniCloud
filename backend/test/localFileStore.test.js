@@ -55,6 +55,29 @@ test('same size with a newer remote timestamp is invalid', async () => {
 	assert.equal(await store.getValidPath({ ...file, remote_modified_time: '2026-08-03T00:00:00Z' }), null);
 });
 
+test('a sidecar publish failure invalidates same-sized replacement content', async () => {
+	await store.writeFromStream(file, Readable.from(['abcdef']));
+	const { data, sidecar } = pathsFor(file);
+	const replacement = { ...file, remote_modified_time: '2026-08-03T00:00:00Z' };
+	const rename = fs.rename;
+	let dataPublished = false;
+
+	fs.rename = async (from, to) => {
+		if (to === data) dataPublished = true;
+		if (to === sidecar && dataPublished) throw new Error('sidecar publication blocked');
+		return rename(from, to);
+	};
+	try {
+		await assert.rejects(store.writeFromStream(replacement, Readable.from(['ghijkl'])), /sidecar publication blocked/);
+	} finally {
+		fs.rename = rename;
+	}
+
+	assert.equal(await store.getValidPath(file), null);
+	await assert.rejects(fs.stat(data), { code: 'ENOENT' });
+	await assert.rejects(fs.stat(sidecar), { code: 'ENOENT' });
+});
+
 test('conservatively invalidates records without a remote version', async () => {
 	const unversioned = { ...file, remote_modified_time: null };
 	await store.writeFromStream(unversioned, Readable.from(['abcdef']));
