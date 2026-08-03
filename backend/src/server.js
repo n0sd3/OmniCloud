@@ -3,6 +3,7 @@ import { WebSocketServer } from 'ws';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { LOCAL_USER_ID } from './config/database.js';
+import { fileCacheService } from './services/fileCacheService.js';
 import { registerUploadSocket, unregisterUploadSocket } from './services/websocketHub.js';
 import { runDeltaSync, scheduleSync } from './services/syncService.js';
 
@@ -55,6 +56,10 @@ wss.on('connection', (socket, request) => {
 	socket.on('close', () => {
 		unregisterUploadSocket(uploadId, socket);
 	});
+});
+
+fileCacheService.cleanupTemps().catch((error) => {
+	console.error('File cache temp cleanup failed:', error);
 });
 
 scheduleSync();

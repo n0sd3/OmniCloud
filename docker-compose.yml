@@ -14,8 +14,10 @@ services:
       # fixá-los aqui sobrescreveria a URL pública e quebraria o retorno do OAuth.
       PORT: 8787
       DATABASE_PATH: /app/data/omnicloud.db
+      FILE_CACHE_PATH: /app/cache/files
     volumes:
       - omnicloud_api_data:/app/data
+      - omnicloud_file_cache:/app/cache/files
     restart: unless-stopped
 
   web:
@@ -33,3 +35,4 @@ services:
 
 volumes:
   omnicloud_api_data:
+  omnicloud_file_cache:

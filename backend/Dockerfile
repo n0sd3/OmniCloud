@@ -13,7 +13,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY backend/package*.json ./
 COPY backend/src ./src
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/cache/files
 
 EXPOSE 8787
 CMD ["npm", "start"]
