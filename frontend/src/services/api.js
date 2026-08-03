@@ -256,6 +256,16 @@ export const api = {
 	previewUrl(fileId) {
 		return `${API_BASE_URL}/files/${fileId}/preview`;
 	},
+	async previewText(fileId) {
+		const response = await fetch(`${API_BASE_URL}/files/${fileId}/preview`, { credentials: 'include' });
+		if (!response.ok) throw new Error(`Preview request failed with ${response.status}`);
+		return response.text();
+	},
+	thumbnailUrl(file) {
+		const revision = file.modifiedTime || file.remote_modified_time || file.updated_at || '';
+		const query = new URLSearchParams({ v: `${revision}:${Number(file.size || 0)}` }).toString();
+		return `${API_BASE_URL}/files/${file.id}/thumbnail?${query}`;
+	},
 	getSettings() {
 		return settingsApi.getSettings();
 	},

@@ -1,11 +1,16 @@
 import { Router } from 'express';
+import { createReadStream, statSync } from 'node:fs';
 import { listFilesByPath, getFileById, getFileByRemoteId, listRecentFiles, listStarredFiles, searchFiles, setFileStarred, updateFileStarredByRemoteId } from '../services/fileService.js';
 import { getAccountById, getActiveAccounts } from '../services/accountService.js';
 import { createAdapter } from '../services/adapterRegistry.js';
 import { selectBestAccount } from '../services/spaceAllocator.js';
 import { syncAccount } from '../services/syncService.js';
 import { requireAppUser } from '../middleware/authMiddleware.js';
+import { generateThumbnail, getThumbnailKind } from '../services/thumbnailService.js';
 import { fileCacheService } from '../services/fileCacheService.js';
+import { parseRangeHeader } from '../services/webdav.js';
+import { effectivePreviewSource, getPreviewCacheKey, getPreviewKind, renderOfficePdf } from '../services/previewService.js';
+import { googleDocsExport, exportedFileName } from '../utils/mime.js';
 
 const router = Router();
 
@@ -313,8 +318,13 @@ router.get('/files/:id/download', async (req, res, next) => {
 			adapter: context.adapter,
 		});
 
-		res.setHeader('Content-Disposition', `attachment; filename="${context.file.file_name}"`);
-		res.setHeader('Content-Type', context.file.mime_type || 'application/octet-stream');
+		const exportTarget = googleDocsExport(context.file);
+		const downloadName = exportTarget
+			? exportedFileName(context.file.file_name, exportTarget.extension)
+			: context.file.file_name;
+
+		res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+		res.setHeader('Content-Type', exportTarget?.mimeType || context.file.mime_type || 'application/octet-stream');
 		if (!context.file.is_folder && context.file.size) {
 			res.setHeader('Content-Length', String(context.file.size));
 		}
@@ -323,6 +333,24 @@ router.get('/files/:id/download', async (req, res, next) => {
 		next(error);
 	}
 });
+
+function sendLocalPreview(req, res, filePath) {
+	const size = statSync(filePath).size;
+	const range = parseRangeHeader(req.headers.range, size);
+
+	if (range) {
+		res.status(206);
+		res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
+		res.setHeader('Content-Length', String(range.end - range.start + 1));
+	} else {
+		res.status(200);
+		res.setHeader('Content-Length', String(size));
+	}
+
+	const stream = createReadStream(filePath, range ? { start: range.start, end: range.end } : undefined);
+	stream.on('error', () => res.destroy());
+	stream.pipe(res);
+}
 
 router.get('/files/:id/preview', async (req, res, next) => {
 	try {
@@ -335,29 +363,97 @@ router.get('/files/:id/preview', async (req, res, next) => {
 			return res.status(400).json({ error: 'Folder preview is not supported' });
 		}
 
-		const mimeType = context.file.mime_type || 'application/octet-stream';
-		const isPreviewable = /^(image|video|audio|text)\//.test(mimeType)
-			|| mimeType === 'application/pdf'
-			|| mimeType === 'application/json';
-
-		if (!isPreviewable) {
+		const kind = getPreviewKind(context.file);
+		if (!kind) {
 			return res.status(415).json({ error: 'Preview is not supported for this file type' });
 		}
 
-		const { stream } = await fileCacheService.openFile({
+		const etag = `"${getPreviewCacheKey(req.user.id, context.file)}"`;
+		res.setHeader('ETag', etag);
+		res.setHeader('Cache-Control', 'private, max-age=3600');
+		res.setHeader('Accept-Ranges', 'bytes');
+		res.setHeader('Content-Disposition', `inline; filename="${context.file.file_name}"`);
+		if (req.headers['if-none-match'] === etag) {
+			return res.status(304).end();
+		}
+
+		if (kind === 'office') {
+			const pdfPath = await renderOfficePdf({
+				userId: req.user.id,
+				file: context.file,
+				openStream: async () => (await fileCacheService.openFile({
+					userId: req.user.id,
+					file: context.file,
+					adapter: context.adapter,
+				})).stream,
+			});
+			res.setHeader('Content-Type', 'application/pdf');
+			return sendLocalPreview(req, res, pdfPath);
+		}
+
+		const size = Number(context.file.size || 0);
+		const requestedRange = parseRangeHeader(req.headers.range, size);
+		const opened = await fileCacheService.openFile({
 			userId: req.user.id,
 			file: context.file,
 			adapter: context.adapter,
+			range: requestedRange || {},
 		});
+		// Nem todo provider honra range remoto: sem cache local e sem suporte do
+		// adapter, o corpo devolvido e o arquivo inteiro e 206 seria mentira.
+		const range = requestedRange
+			&& (opened.cached || context.adapter.getCapabilities?.().supportsRange)
+			? requestedRange
+			: null;
 
-		res.setHeader('Content-Disposition', `inline; filename="${context.file.file_name}"`);
-		res.setHeader('Content-Type', mimeType);
-		if (context.file.size) {
-			res.setHeader('Content-Length', String(context.file.size));
+		res.setHeader('Content-Type', effectivePreviewSource(context.file).mimeType || 'application/octet-stream');
+		if (range) {
+			res.status(206);
+			res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
+			res.setHeader('Content-Length', String(range.end - range.start + 1));
+		} else {
+			res.status(200);
+			if (size) res.setHeader('Content-Length', String(size));
 		}
 
-		stream.pipe(res);
+		opened.stream.on('error', () => res.destroy());
+		opened.stream.pipe(res);
 	} catch (error) {
+		if (error.statusCode === 415 || error.statusCode === 422) {
+			return res.status(error.statusCode).json({ error: error.message });
+		}
+		next(error);
+	}
+});
+
+router.get('/files/:id/thumbnail', async (req, res, next) => {
+	try {
+		const context = await getFileContext(req.user.id, req.params.id);
+		if (!ensureFileContext(context, res)) {
+			return;
+		}
+
+		if (!getThumbnailKind(context.file)) {
+			return res.status(415).json({ error: 'Thumbnail is not supported for this file type' });
+		}
+
+		const thumbnailPath = await generateThumbnail({
+			userId: req.user.id,
+			file: context.file,
+			openStream: async () => (await fileCacheService.openFile({
+				userId: req.user.id,
+				file: context.file,
+				adapter: context.adapter,
+			})).stream,
+		});
+
+		res.setHeader('Content-Type', 'image/jpeg');
+		res.setHeader('Cache-Control', 'private, max-age=86400');
+		createReadStream(thumbnailPath).on('error', next).pipe(res);
+	} catch (error) {
+		if (error.statusCode === 415 || error.statusCode === 422) {
+			return res.status(error.statusCode).json({ error: error.message });
+		}
 		next(error);
 	}
 });
