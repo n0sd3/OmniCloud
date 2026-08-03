@@ -305,7 +305,7 @@ Open the app at:
 docker compose down
 ```
 
-SQLite data is persisted in the Docker volume `omnicloud_api_data`. Complete warmed files are kept in `omnicloud_file_cache`, survive container recreation, and grow without an automatic size limit. Direct edits to the cache volume are ignored; change files through OmniCloud instead.
+SQLite data is persisted in the Docker volume `omnicloud_api_data`. Complete warmed files are kept in `omnicloud_file_cache`, survive container recreation, and grow without an automatic size limit. Direct edits to the cache volume are unsupported and are never detected or synchronized back to SQLite or providers, but may affect local reads until the entry is invalidated and fetched again; change files through OmniCloud instead.
 
 To remove containers, SQLite data, and cached files:
 
