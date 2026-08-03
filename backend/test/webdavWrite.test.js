@@ -102,6 +102,29 @@ test('PUT sobre arquivo existente devolve 204', async () => {
 	assert.equal(files.length, 1, 'não pode duplicar o registro ao sobrescrever');
 });
 
+test('PUT sobre arquivo existente não deixa o GET seguinte servir o cache antigo', async () => {
+	const created = await fetch(`${baseUrl}/webdav/cache-check.txt`, {
+		method: 'PUT',
+		headers: { Authorization: auth, 'Content-Length': '7', 'Content-Type': 'text/plain' },
+		body: 'antigo!',
+	});
+	assert.equal(created.status, 201);
+
+	// Esquenta o cache local lendo o arquivo pelo WebDAV.
+	const warmed = await fetch(`${baseUrl}/webdav/cache-check.txt`, { headers: { Authorization: auth } });
+	assert.equal(await warmed.text(), 'antigo!');
+
+	const overwritten = await fetch(`${baseUrl}/webdav/cache-check.txt`, {
+		method: 'PUT',
+		headers: { Authorization: auth, 'Content-Length': '5', 'Content-Type': 'text/plain' },
+		body: 'novo!',
+	});
+	assert.equal(overwritten.status, 204);
+
+	const after = await fetch(`${baseUrl}/webdav/cache-check.txt`, { headers: { Authorization: auth } });
+	assert.equal(await after.text(), 'novo!', 'GET depois do PUT não pode servir os bytes antigos do cache');
+});
+
 test('MOVE renomeia dentro da mesma pasta', async () => {
 	const response = await fetch(`${baseUrl}/webdav/antigo.txt`, {
 		method: 'MOVE',
