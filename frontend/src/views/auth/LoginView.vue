@@ -67,7 +67,7 @@ function goRegister() {
 			</button>
 		</form>
 
-		<p class="auth-switch">
+		<p v-if="authStore.registrationEnabled" class="auth-switch">
 			{{ t('auth.noAccount') }}
 			<button type="button" @click="goRegister">{{ t('auth.registerCta') }}</button>
 		</p>

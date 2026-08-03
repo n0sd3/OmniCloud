@@ -6,6 +6,7 @@ export const useAuthStore = defineStore('auth', {
 		mode: 'local',
 		requiresAuth: false,
 		authenticated: false,
+		registrationEnabled: true,
 		user: null,
 		initialized: false,
 		loading: false,
@@ -20,6 +21,7 @@ export const useAuthStore = defineStore('auth', {
 			this.mode = summary.mode || 'local';
 			this.requiresAuth = Boolean(summary.requiresAuth);
 			this.authenticated = Boolean(summary.authenticated);
+			this.registrationEnabled = summary.registrationEnabled !== false;
 			this.user = summary.user || null;
 		},
 		async bootstrap() {

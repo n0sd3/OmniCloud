@@ -1,3 +1,4 @@
+import { i18n } from '../i18n';
 import dropboxLogo from '../assets/dropbox.svg';
 import googleDriveLogo from '../assets/google-drive.svg';
 import megaLogo from '../assets/mega.svg';
@@ -60,9 +61,10 @@ export function formatBytesStrict(value) {
 	return `${amount.toFixed(amount >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-export function formatDate(value, locale = 'id-ID') {
+export function formatDate(value, locale) {
 	if (!value) return '—';
-	return new Intl.DateTimeFormat(locale, {
+	const resolvedLocale = locale ?? (i18n.global.locale.value === 'id' ? 'id-ID' : 'en-US');
+	return new Intl.DateTimeFormat(resolvedLocale, {
 		day: 'numeric',
 		month: 'short',
 		year: 'numeric',

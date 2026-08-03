@@ -364,7 +364,7 @@
 		"freeSpace": "Free space",
 		"used": "Used",
 		"free": "Free",
-		"empty": "kosong",
+		"empty": "free",
 		"syncNow": "Sync now",
 		"syncing": "Syncing...",
 		"connect": "Connect",
@@ -443,6 +443,9 @@
 		"loading": "Loading preview...",
 		"notAvailable": "Preview is not available for this file type.",
 		"document": "Document preview",
-		"failed": "Preview failed to load. Some provider files are not compatible with lightweight preview."
+		"failed": "Preview failed to load. Some provider files are not compatible with lightweight preview.",
+		"previous": "Previous file",
+		"next": "Next file",
+		"zoomHint": "Click to zoom, scroll to adjust"
 	}
 }

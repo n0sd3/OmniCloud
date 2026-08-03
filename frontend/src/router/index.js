@@ -75,7 +75,9 @@ router.beforeEach(async (to) => {
 	}
 
 	if (to.meta.public) {
-		return authStore.authenticated ? { path: '/' } : true;
+		if (authStore.authenticated) return { path: '/' };
+		if (to.name === 'register' && !authStore.registrationEnabled) return { name: 'login' };
+		return true;
 	}
 
 	if (!authStore.authenticated) {

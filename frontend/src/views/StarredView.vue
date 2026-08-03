@@ -18,6 +18,7 @@ import FileDetailsModal from '../components/FileDetailsModal.vue';
 import LoadingState from '../components/LoadingState.vue';
 import { useIncrementalRender } from '../composables/useIncrementalRender';
 import { useFileListView } from '../composables/useFileListView';
+import { getPreviewType } from '../composables/useFileType.js';
 import { useAutoRefresh } from '../composables/useAutoRefresh.js';
 import { providerLabel } from '../composables/useFormatFile.js';
 import { useFileTreeStore } from '../stores/fileTree';
@@ -31,6 +32,7 @@ const uploadQueueStore = useUploadQueueStore();
 const { uploads, totalProgress } = storeToRefs(uploadQueueStore);
 
 const view = useFileListView({
+	getPreviewType,
 	loadFiles: async () => {
 		const { data } = await api.listStarredFiles();
 		return Array.isArray(data) ? data : [];
@@ -75,6 +77,12 @@ const {
 	previewFile,
 	isPreviewOpen,
 	isPreviewLoading,
+	previewError,
+	previewText,
+	hasPreviousPreview,
+	hasNextPreview,
+	showPreviousPreview,
+	showNextPreview,
 	openPreview,
 	closePreview,
 	handlePreviewLoaded,
@@ -83,6 +91,7 @@ const {
 	isDetailsOpen,
 	closeDetails,
 	downloadSelection,
+	triggerDownload,
 	renameSelectedFile,
 	deleteSelectedFile,
 	toggleSelectedFileStar,
@@ -176,7 +185,7 @@ useAutoRefresh(() => refresh(), { intervalMs: 30000 });
 			<FileListContextMenu :context-menu-ref="contextMenuRef" :context-menu="contextMenu" :selected-count="selectedCount" :primary-selected-file="primarySelectedFile" :can-preview="canPreviewSelection" :can-toggle-star="canToggleStarSelection" :is-primary-starred="isPrimarySelectedStarred" :can-download="canDownloadSelection" :can-rename="canRenameSelection" :can-show-details="selectedCount === 1" :can-open-folder="canOpenSelection" @open-folder="openSelectedItem" @preview="openPreview" @toggle-star="toggleSelectedFileStar" @download="downloadSelection" @rename="renameSelectedFile" @show-details="showSelectedFileDetails" @delete="deleteSelectedFile" @close="closeContextMenu" />
 
 			<FileDetailsModal :file="detailsFile" :is-open="isDetailsOpen" :is-folder="detailsFile?.is_folder" :provider-label-fn="providerLabel" @close="closeDetails" />
-			<FilePreviewModal :file="previewFile" :is-open="isPreviewOpen" :is-loading="isPreviewLoading" @close="closePreview" @loaded="handlePreviewLoaded" @failed="handlePreviewFailed" />
+			<FilePreviewModal :file="previewFile" :is-open="isPreviewOpen" :is-loading="isPreviewLoading" :preview-text="previewText" :preview-error="previewError" :has-previous="hasPreviousPreview" :has-next="hasNextPreview" @close="closePreview" @loaded="handlePreviewLoaded" @failed="handlePreviewFailed" @previous="showPreviousPreview" @next="showNextPreview" @download="triggerDownload(previewFile)" />
 		</div>
 
 		<FloatingProgressToast :uploads="uploads" :total-progress="totalProgress" @close="uploadQueueStore.clearOperations" @close-item="uploadQueueStore.closeOperation" />
