@@ -30,7 +30,7 @@ export function parseRangeHeader(header, size) {
 	}
 
 	if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-	if (start >= total || start < 0) return null;
+	if (start >= total || start < 0 || start > end) return null;
 
 	return { start, end: Math.min(end, total - 1) };
 }

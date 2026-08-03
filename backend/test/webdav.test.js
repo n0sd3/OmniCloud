@@ -31,6 +31,10 @@ test('parseRangeHeader devolve null quando start passa do fim', () => {
 	assert.equal(parseRangeHeader('bytes=2000-', 1000), null);
 });
 
+test('parseRangeHeader devolve null para intervalo invertido', () => {
+	assert.equal(parseRangeHeader('bytes=500-100', 1000), null);
+});
+
 test('parseDavPath resolve a raiz', () => {
 	assert.deepEqual(parseDavPath('/webdav/'), { parentPath: '/', name: null });
 	assert.deepEqual(parseDavPath('/webdav'), { parentPath: '/', name: null });
