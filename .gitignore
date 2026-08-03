@@ -20,6 +20,7 @@ backend/credentials.json
 # Database and local runtime data
 backend/omnicloud.db
 backend/omnicloud.db-*
+backend/.cache/
 *.sqlite
 *.sqlite3
 
