@@ -54,7 +54,9 @@ services:
     volumes:
       - omnicloud_rclone_cache:/var/cache/rclone
     ports:
-      - "445:445"
+      # macOS (File Sharing) e NAS com Samba próprio já ocupam a 445 do host;
+      # SMB_PORT=1445 libera a stack sem mexer no serviço nativo.
+      - "${SMB_PORT:-445}:445"
     depends_on:
       - api
     restart: unless-stopped
