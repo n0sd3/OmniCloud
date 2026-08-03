@@ -176,6 +176,49 @@ test('capture waits for local drain before forwarding the next upload chunk', as
 	}
 });
 
+test('discard releases a capture waiting for local drain', async () => {
+	const originalWrite = fsSync.WriteStream.prototype.write;
+	const originalEmit = fsSync.WriteStream.prototype.emit;
+	let blockedWriter;
+	let blockedOnce = false;
+	fsSync.WriteStream.prototype.write = function write(...args) {
+		const result = originalWrite.apply(this, args);
+		if (String(this.path).startsWith(rootDir) && !blockedOnce) {
+			blockedOnce = true;
+			blockedWriter = this;
+			return false;
+		}
+		return result;
+	};
+	fsSync.WriteStream.prototype.emit = function emit(event, ...args) {
+		if (this === blockedWriter && event === 'drain') return false;
+		return originalEmit.call(this, event, ...args);
+	};
+
+	try {
+		const capture = store.captureUpload(Readable.from(['first', 'second']), 'discard-backpressure');
+		let forwarded = '';
+		capture.stream.on('data', (chunk) => { forwarded += chunk.toString(); });
+		const ended = new Promise((resolve, reject) => {
+			capture.stream.once('end', () => resolve(true));
+			capture.stream.once('error', reject);
+		});
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(forwarded, 'first');
+
+		await capture.discard();
+		assert.equal(await capture.completed, null);
+		assert.equal(await Promise.race([
+			ended,
+			new Promise((resolve) => setTimeout(() => resolve(false), 25)),
+		]), true);
+		assert.equal(forwarded, 'firstsecond');
+	} finally {
+		fsSync.WriteStream.prototype.write = originalWrite;
+		fsSync.WriteStream.prototype.emit = originalEmit;
+	}
+});
+
 test('path names hide raw identity values and incomplete temps are misses', async () => {
 	await fs.writeFile(path.join(rootDir, 'incomplete.data.tmp'), 'abcdef');
 	assert.equal(await store.getValidPath(file), null);

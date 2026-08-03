@@ -125,6 +125,7 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 			let failed = false;
 			let settled = false;
 			let flushCallback = null;
+			let resumePendingWrite = null;
 			let resolveCompleted;
 			const completed = new Promise((resolve) => { resolveCompleted = resolve; });
 			const settle = (result) => {
@@ -164,10 +165,14 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 									resumed = true;
 									writer.off('drain', resume);
 									writer.off('error', resume);
+									writer.off('close', resume);
+									if (resumePendingWrite === resume) resumePendingWrite = null;
 									callback();
 								};
+								resumePendingWrite = resume;
 								writer.once('drain', resume);
 								writer.once('error', resume);
+								writer.once('close', resume);
 								return;
 							}
 						} catch (error) {
@@ -203,6 +208,7 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 					failed = true;
 					writer?.destroy();
 					settle(null);
+					resumePendingWrite?.();
 					await fsp.rm(dataTemp, { force: true });
 				},
 			};
