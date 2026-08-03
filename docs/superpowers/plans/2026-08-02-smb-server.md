@@ -1439,9 +1439,32 @@ git commit -m "feat: add read-only WebDAV endpoints backed by the virtual tree"
 
 **Files:**
 - Modify: `backend/src/routes/webdavRoutes.js` (adicionar handlers)
-- Modify: `backend/src/services/uploadService.js:~30` (exportar `runUpload`)
+- Modify: `backend/src/services/uploadService.js:26` (exportar `runUpload`)
 - Modify: `backend/src/services/fileService.js` (adicionar `deleteFileMetadata`)
+- Modify: `backend/src/app.js` (mover o mount de `/webdav` para antes do `cors()`)
+- Modify: `backend/test/webdavRoutes.test.js:103-111` (corrigir o teste de OPTIONS)
 - Test: `backend/test/webdavWrite.test.js`
+
+**Correção do OPTIONS (feita nesta task).** Hoje `app.js` monta `/webdav` depois do
+`cors()`. O middleware `cors()` responde qualquer `OPTIONS` com um 204 de preflight, então
+o `router.options` de `webdavRoutes.js:75-80` nunca executa e o WebDAV nunca anuncia
+`DAV: 1`. Mova a linha `app.use('/webdav', webdavRoutes);` para **antes** do `app.use(cors(...))`
+— o WebDAV não é consumido por browser, então CORS não se aplica a ele. Depois troque o
+teste `'OPTIONS recebe a resposta CORS global'` em `backend/test/webdavRoutes.test.js`
+por:
+
+```js
+test('OPTIONS anuncia DAV 1', async () => {
+	const response = await fetch(`${baseUrl}/webdav/`, {
+		method: 'OPTIONS',
+		headers: { Authorization: auth },
+	});
+
+	assert.equal(response.status, 200);
+	assert.equal(response.headers.get('dav'), '1');
+	assert.match(response.headers.get('allow'), /PROPFIND/);
+});
+```
 
 **Interfaces:**
 - Consumes: tudo da Task 5; `createUploadSession` de `uploadSessionService.js`; `selectBestAccount` de `spaceAllocator.js`; `syncAccount` de `syncService.js`.
@@ -1620,7 +1643,13 @@ import { selectBestAccount } from '../services/spaceAllocator.js';
 import { createUploadSession } from '../services/uploadSessionService.js';
 import { runUpload } from '../services/uploadService.js';
 import { syncAccount } from '../services/syncService.js';
+import { fileCacheService } from '../services/fileCacheService.js';
 ```
+
+`runUpload` já captura o stream no cache local (`captureUpload`/`commitCapture`) e já chama
+`syncAccount` ao final, então o `PUT` herda cache e reconciliação de graça. `DELETE` e
+`MOVE` chamam `syncAccount` explicitamente, e `syncService` faz `reconcileAccount`/`rebind`
+no cache — por isso só o caminho de sobrescrita precisa de `invalidate` manual.
 
 E os handlers, depois do `router.get`:
 
@@ -1683,6 +1712,9 @@ router.put('*splat', async (req, res, next) => {
 		if (existing) {
 			const account = getAccountById(req.webdavUserId, existing.cloud_account_id);
 			if (account) await createAdapter(account).deleteFile(existing);
+			// Invalida antes do upload: sem isso o cache continua servindo os bytes
+			// antigos na janela entre o delete e o syncAccount que runUpload dispara.
+			fileCacheService.invalidate(existing);
 			deleteFileMetadata(req.webdavUserId, existing.id);
 		}
 

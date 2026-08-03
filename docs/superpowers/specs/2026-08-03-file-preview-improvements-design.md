@@ -74,11 +74,12 @@ injetá-lo, o que elimina o caminho `defaultCanPreview` baseado em `getFileCateg
 
 ### Backend
 
-**`backend/src/services/officeConvert.js` (novo).** Extrai a chamada do LibreOffice
-que hoje vive dentro de `thumbnailService.renderDocument`, exportando
-`officeToPdf({ inputPath, outDir, execute, timeoutMs })`. Dois consumidores reais:
+**`backend/src/services/fileConvert.js` (novo).** Extrai de `thumbnailService.js` a
+chamada do LibreOffice e a escrita limitada de stream para disco, exportando
+`officeToPdf({ inputPath, outDir, execute, timeoutMs })` e
+`writeStreamToFile(stream, targetPath, maxBytes)`. Dois consumidores reais:
 `thumbnailService` (que continua rasterizando o PDF) e `previewService` (que serve o
-PDF). Sem essa extração, a invocação do LibreOffice ficaria duplicada.
+PDF). Sem essa extração, as duas ficariam duplicadas.
 
 **`backend/src/services/previewService.js` (novo).** Exporta:
 
@@ -185,7 +186,7 @@ Backend (`node --test`, seguindo o padrão de `thumbnailRoutes.test.js` e
   `Range`; 200 quando o adapter não suporta range e o arquivo não está em cache; 304
   quando `If-None-Match` bate; 415 para tipo sem suporte; Office responde
   `application/pdf`.
-- `officeConvert.test.js` — argumentos passados ao LibreOffice e caminho do PDF
+- `fileConvert.test.js` — argumentos passados ao LibreOffice e caminho do PDF
   resultante.
 - Ajuste em `thumbnailService.test.js` para a extração de `officeToPdf`.
 
