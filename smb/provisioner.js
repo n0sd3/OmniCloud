@@ -24,8 +24,17 @@ const mounted = new Map();
 // username com ']', '=' ou newline injetaria diretivas. Valida antes de usar.
 const USERNAME_PATTERN = /^[a-z0-9._-]+$/;
 
+// Contas de sistema do container: um usuário cujo email derive para um destes
+// nomes ganharia conta Samba em cima da conta de sistema.
+const RESERVED_USERNAMES = new Set([
+	'root', 'daemon', 'bin', 'sys', 'sync', 'games', 'man', 'lp', 'mail',
+	'news', 'uucp', 'proxy', 'www-data', 'backup', 'list', 'irc', 'nobody',
+	'systemd-network', 'messagebus', 'sshd',
+]);
+
 function isSafeUsername(username) {
-	return USERNAME_PATTERN.test(String(username || ''));
+	const value = String(username || '');
+	return USERNAME_PATTERN.test(value) && !RESERVED_USERNAMES.has(value);
 }
 
 async function fetchUsers() {
@@ -141,11 +150,15 @@ async function removeMount(userId, username) {
 	const target = `${MOUNT_ROOT}/${userId}`;
 
 	if (existsSync(target)) {
-		await run('fusermount3', ['-u', target]).catch(() => {});
+		await run('fusermount3', ['-u', target]).catch((error) =>
+			console.error(`unmount failed for ${target}: ${error.message}`),
+		);
 		console.log(`unmounted ${target}`);
 	}
 
-	await run('smbpasswd', ['-x', username]).catch(() => {});
+	await run('smbpasswd', ['-x', username]).catch((error) =>
+		console.error(`smbpasswd -x failed for ${username}: ${error.message}`),
+	);
 	mounted.delete(userId);
 	console.log(`removed samba account ${username}`);
 }
