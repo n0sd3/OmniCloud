@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test, { afterEach, beforeEach } from 'node:test';
+import fsSync from 'node:fs';
 import { Readable } from 'node:stream';
 
 const { createLocalFileStore } = await import('../src/services/localFileStore.js');
@@ -78,6 +79,46 @@ test('a sidecar publish failure invalidates same-sized replacement content', asy
 	await assert.rejects(fs.stat(sidecar), { code: 'ENOENT' });
 });
 
+test('concurrent versions cannot publish mixed content and metadata', async () => {
+	const newer = { ...file, remote_modified_time: '2026-08-03T00:00:00Z' };
+	const { data, sidecar } = pathsFor(file);
+	const rename = fs.rename;
+	let releaseOlder;
+	let olderSidecarReached;
+	let newerDataReached;
+	let dataPublishes = 0;
+	const waitForOlderSidecar = new Promise((resolve) => { olderSidecarReached = resolve; });
+	const waitForNewerData = new Promise((resolve) => { newerDataReached = resolve; });
+	const holdOlderSidecar = new Promise((resolve) => { releaseOlder = resolve; });
+
+	fs.rename = async (from, to) => {
+		if (to === data && String(from).endsWith('.tmp') && ++dataPublishes === 2) newerDataReached();
+		if (to === sidecar && JSON.parse(await fs.readFile(from, 'utf8')).remoteModifiedTime === file.remote_modified_time) {
+			olderSidecarReached();
+			await holdOlderSidecar;
+		}
+		return rename(from, to);
+	};
+	try {
+		const olderWrite = store.writeFromStream(file, Readable.from(['abcdef']));
+		await waitForOlderSidecar;
+		const newerWrite = store.writeFromStream(newer, Readable.from(['ghijkl']));
+		const interleaved = await Promise.race([
+			waitForNewerData.then(() => true),
+			new Promise((resolve) => setTimeout(() => resolve(false), 25)),
+		]);
+		if (interleaved) await newerWrite;
+		releaseOlder();
+		await Promise.all([olderWrite, newerWrite]);
+	} finally {
+		fs.rename = rename;
+		releaseOlder();
+	}
+
+	assert.equal(await store.getValidPath(file), null);
+	assert.equal(await read(await store.openReadStream(newer)), 'ghijkl');
+});
+
 test('conservatively invalidates records without a remote version', async () => {
 	const unversioned = { ...file, remote_modified_time: null };
 	await store.writeFromStream(unversioned, Readable.from(['abcdef']));
@@ -92,6 +133,47 @@ test('capture keeps provider stream flowing when the local write fails', async (
 	const capture = brokenStore.captureUpload(Readable.from(['payload']), 'upload-1');
 	assert.equal(await read(capture.stream), 'payload');
 	assert.equal(await capture.completed, null);
+});
+
+test('capture waits for local drain before forwarding the next upload chunk', async () => {
+	const originalWrite = fsSync.WriteStream.prototype.write;
+	const originalEmit = fsSync.WriteStream.prototype.emit;
+	let blockedWriter;
+	let blockedOnce = false;
+	let released = false;
+	fsSync.WriteStream.prototype.write = function write(...args) {
+		const result = originalWrite.apply(this, args);
+		if (String(this.path).startsWith(rootDir) && !blockedOnce) {
+			blockedOnce = true;
+			blockedWriter = this;
+			return false;
+		}
+		return result;
+	};
+	fsSync.WriteStream.prototype.emit = function emit(event, ...args) {
+		if (this === blockedWriter && event === 'drain' && !released) return false;
+		return originalEmit.call(this, event, ...args);
+	};
+
+	try {
+		const capture = store.captureUpload(Readable.from(['first', 'second']), 'backpressure');
+		let forwarded = '';
+		capture.stream.on('data', (chunk) => { forwarded += chunk.toString(); });
+		const ended = new Promise((resolve, reject) => {
+			capture.stream.once('end', resolve);
+			capture.stream.once('error', reject);
+		});
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(forwarded, 'first');
+		released = true;
+		originalEmit.call(blockedWriter, 'drain');
+		await ended;
+		assert.equal(forwarded, 'firstsecond');
+		await capture.discard();
+	} finally {
+		fsSync.WriteStream.prototype.write = originalWrite;
+		fsSync.WriteStream.prototype.emit = originalEmit;
+	}
 });
 
 test('path names hide raw identity values and incomplete temps are misses', async () => {

@@ -125,6 +125,21 @@ test('known rename preserves bytes and rebinds the sidecar', async () => {
 	assert.ok(await store.getValidPath(renamedFile));
 });
 
+test('rename to a new remote id invalidates the old cache identity', async () => {
+	const oldFile = createFileMetadata({
+		user_id: LOCAL_USER_ID,
+		cloud_account_id: account.id,
+		...snapshot('rename-old', { file_name: 'before-s3.txt' }),
+	});
+	await cache(oldFile);
+	remoteFiles = [snapshot('rename-new', { file_name: 'after-s3.txt' })];
+
+	await syncAccount(LOCAL_USER_ID, account, { preserveCacheRemoteIds: ['rename-old'] });
+
+	assert.equal(await store.getValidPath(oldFile), null);
+	await assert.rejects(fs.access(dataPath(oldFile)));
+});
+
 test('records without a remote modification time invalidate on every snapshot', async () => {
 	const oldFile = createFileMetadata({
 		user_id: LOCAL_USER_ID,

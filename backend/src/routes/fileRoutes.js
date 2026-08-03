@@ -211,7 +211,8 @@ router.get('/files/:id/shared-children', async (req, res, next) => {
 		});
 		fileCacheService.warmFolder({
 			userId: req.user.id,
-			virtualPath: context.file.virtual_path || '/',
+			folderScope: JSON.stringify([context.account.id, context.file.remote_file_id]),
+			directChildren: true,
 			files,
 			adapterFor: () => context.adapter,
 		});

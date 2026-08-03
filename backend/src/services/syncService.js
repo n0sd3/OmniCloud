@@ -53,8 +53,9 @@ let activeSyncPromise = null;
 async function reconcileCache(userId, accountId, previousFiles, preserveRemoteIds = []) {
 	const nextFiles = listFilesForAccount(userId, accountId);
 	try {
-		await fileCacheService.reconcileAccount(previousFiles, nextFiles, { preserveRemoteIds });
-		const preserved = new Set(preserveRemoteIds.map(String));
+		const nextRemoteIds = new Set(nextFiles.map((file) => String(file.remote_file_id)));
+		const preserved = new Set(preserveRemoteIds.map(String).filter((id) => nextRemoteIds.has(id)));
+		await fileCacheService.reconcileAccount(previousFiles, nextFiles, { preserveRemoteIds: [...preserved] });
 		for (const file of nextFiles) {
 			if (preserved.has(String(file.remote_file_id))) await fileCacheService.rebind(file);
 		}

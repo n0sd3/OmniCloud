@@ -100,6 +100,26 @@ test('folder marker expires after one hour', () => {
 	assert.equal(cache.warmFolder(input), true);
 });
 
+test('shared folders use independent markers and trust their returned direct children', () => {
+	const scheduled = [];
+	const cache = createFileCacheService({ store: createStore() });
+	const input = (folderScope, remoteId) => ({
+		userId: 'u1',
+		folderScope,
+		directChildren: true,
+		files: [{ ...file, virtual_path: undefined, remote_file_id: remoteId }],
+		adapterFor(currentFile) {
+			scheduled.push(currentFile.remote_file_id);
+			return createAdapter();
+		},
+	});
+
+	assert.equal(cache.warmFolder(input('shared:folder-1', 'child-1')), true);
+	assert.equal(cache.warmFolder(input('shared:folder-1', 'child-1')), false);
+	assert.equal(cache.warmFolder(input('shared:folder-2', 'child-2')), true);
+	assert.deepEqual(scheduled, ['child-1', 'child-2']);
+});
+
 test('cache miss returns remote stream without waiting for background warming', async () => {
 	let releaseWarm;
 	const adapter = createAdapter({

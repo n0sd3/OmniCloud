@@ -21,6 +21,7 @@ function metadataFor(file) {
 }
 
 export function createLocalFileStore({ rootDir, logger = console }) {
+	const publications = new Map();
 	const keyFor = (file) => crypto
 		.createHash('sha256')
 		.update(JSON.stringify([file.user_id, file.cloud_account_id, file.remote_file_id]))
@@ -53,7 +54,7 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		}
 	}
 
-	async function publish(dataTemp, file) {
+	async function publishGeneration(dataTemp, file) {
 		const paths = pathsFor(file);
 		const metadata = metadataFor(file);
 		const dataStat = await fsp.stat(dataTemp);
@@ -72,6 +73,18 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 				...(dataPublished ? [fsp.rm(paths.data, { force: true }), fsp.rm(paths.sidecar, { force: true })] : []),
 			]);
 			throw error;
+		}
+	}
+
+	async function publish(dataTemp, file) {
+		const key = keyFor(file);
+		const previous = publications.get(key) || Promise.resolve();
+		const current = previous.catch(() => {}).then(() => publishGeneration(dataTemp, file));
+		publications.set(key, current);
+		try {
+			await current;
+		} finally {
+			if (publications.get(key) === current) publications.delete(key);
 		}
 	}
 
@@ -144,7 +157,19 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 					this.push(chunk);
 					if (!failed && writer) {
 						try {
-							writer.write(chunk);
+							if (!writer.write(chunk)) {
+								let resumed = false;
+								const resume = () => {
+									if (resumed) return;
+									resumed = true;
+									writer.off('drain', resume);
+									writer.off('error', resume);
+									callback();
+								};
+								writer.once('drain', resume);
+								writer.once('error', resume);
+								return;
+							}
 						} catch (error) {
 							failed = true;
 							warn(`Local file cache capture failed: ${error.message}`);

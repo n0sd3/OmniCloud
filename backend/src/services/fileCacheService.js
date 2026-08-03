@@ -31,7 +31,10 @@ export function createFileCacheService({
 		Number(file.size || 0),
 		versionOf(file),
 	]);
-	const folderKey = (userId, virtualPath) => JSON.stringify([userId, normalizePath(virtualPath)]);
+	const folderKey = (userId, virtualPath, folderScope) => JSON.stringify([
+		userId,
+		folderScope || normalizePath(virtualPath),
+	]);
 
 	function drain() {
 		while (active < limit && queue.length) {
@@ -71,15 +74,15 @@ export function createFileCacheService({
 	return {
 		warmFile,
 
-		warmFolder({ userId, virtualPath, files, adapterFor }) {
+		warmFolder({ userId, virtualPath, folderScope, directChildren = false, files, adapterFor }) {
 			const path = normalizePath(virtualPath);
-			const key = folderKey(userId, path);
+			const key = folderKey(userId, path, folderScope);
 			const expiresAt = warmedFolders.get(key);
 			if (expiresAt && expiresAt > now()) return false;
 			warmedFolders.delete(key);
 			warmedFolders.set(key, now() + warmTtlMs);
 			for (const file of files) {
-				if (file.is_folder || normalizePath(file.virtual_path) !== path) continue;
+				if (file.is_folder || (!directChildren && normalizePath(file.virtual_path) !== path)) continue;
 				try {
 					void warmFile({ userId, file, adapter: adapterFor(file) })
 						.catch((error) => logger.error('File cache warm failed:', error));
