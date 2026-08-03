@@ -3,7 +3,8 @@ import { env } from '../config/env.js';
 import { LOCAL_USER_ID } from '../config/database.js';
 import { getActiveAccounts, markAccountStatus, updateAccountStorage } from './accountService.js';
 import { createAdapter } from './adapterRegistry.js';
-import { clearFilesForAccount, replaceFilesForAccount } from './fileService.js';
+import { clearFilesForAccount, listFilesForAccount, replaceFilesForAccount } from './fileService.js';
+import { fileCacheService } from './fileCacheService.js';
 import { isAuthError, withRetry } from '../utils/providerErrors.js';
 
 async function fetchAccountSnapshot(account) {
@@ -49,6 +50,19 @@ let lastSyncReport = {
 
 let activeSyncPromise = null;
 
+async function reconcileCache(userId, accountId, previousFiles, preserveRemoteIds = []) {
+	const nextFiles = listFilesForAccount(userId, accountId);
+	try {
+		await fileCacheService.reconcileAccount(previousFiles, nextFiles, { preserveRemoteIds });
+		const preserved = new Set(preserveRemoteIds.map(String));
+		for (const file of nextFiles) {
+			if (preserved.has(String(file.remote_file_id))) await fileCacheService.rebind(file);
+		}
+	} catch (error) {
+		console.error(`Local cache reconciliation failed for account ${accountId}:`, error);
+	}
+}
+
 export async function runDeltaSync(userId) {
 	if (activeSyncPromise) {
 		return activeSyncPromise;
@@ -61,9 +75,11 @@ export async function runDeltaSync(userId) {
 		for (const account of accounts) {
 			try {
 				const { remoteFiles, storage } = await fetchAccountSnapshot(account);
+				const previousFiles = listFilesForAccount(userId, account.id);
 
 				replaceFilesForAccount(userId, account.id, remoteFiles);
 				updateAccountStorage(userId, account.id, storage.totalSpace, storage.usedSpace);
+				await reconcileCache(userId, account.id, previousFiles);
 				changesDetected += remoteFiles.length;
 			} catch (error) {
 				handleSyncFailure(account, error);
@@ -106,12 +122,14 @@ export function getLastSyncReport() {
 	};
 }
 
-export async function syncAccount(userId, account) {
+export async function syncAccount(userId, account, options = {}) {
 	try {
 		const { remoteFiles, storage } = await fetchAccountSnapshot(account);
+		const previousFiles = listFilesForAccount(userId, account.id);
 
 		replaceFilesForAccount(userId, account.id, remoteFiles);
 		updateAccountStorage(userId, account.id, storage.totalSpace, storage.usedSpace);
+		await reconcileCache(userId, account.id, previousFiles, options.preserveCacheRemoteIds);
 
 		return {
 			accountId: account.id,

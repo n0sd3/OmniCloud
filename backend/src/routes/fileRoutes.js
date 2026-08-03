@@ -232,7 +232,9 @@ router.patch('/files/:id/star', async (req, res, next) => {
 
 		if (supportsStarred) {
 			await context.adapter.setFileStarred(context.file, isStarred);
-			await syncAccount(req.user.id, context.account);
+			await syncAccount(req.user.id, context.account, {
+				preserveCacheRemoteIds: [context.file.remote_file_id],
+			});
 			if (!decodeSharedFileId(context.file.id)) {
 				updateFileStarredByRemoteId(req.user.id, context.account.id, context.file.remote_file_id, isStarred);
 			}
@@ -370,7 +372,9 @@ router.patch('/files/:id/rename', async (req, res, next) => {
 		}
 
 		await context.adapter.renameFile(context.file, name.trim());
-		await syncAccount(req.user.id, context.account);
+		await syncAccount(req.user.id, context.account, {
+			preserveCacheRemoteIds: [context.file.remote_file_id],
+		});
 
 		return res.json({ data: { success: true } });
 	} catch (error) {

@@ -126,6 +126,12 @@ export function listAllFiles(userId) {
 	return db.prepare('SELECT * FROM file_metadata WHERE user_id = ?').all(userId);
 }
 
+export function listFilesForAccount(userId, cloudAccountId) {
+	return db.prepare(
+		'SELECT * FROM file_metadata WHERE user_id = ? AND cloud_account_id = ?',
+	).all(userId, cloudAccountId);
+}
+
 export function listStarredFiles(userId) {
 	const rows = db
 		.prepare(`
