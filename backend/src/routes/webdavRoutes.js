@@ -1,5 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
-import { listFilesByPath, deleteFileMetadata, createFileMetadata } from '../services/fileService.js';
+import {
+	listFilesByPath,
+	deleteFileMetadata,
+	createFileMetadata,
+	renameFileMetadata,
+} from '../services/fileService.js';
 import { getAccountById } from '../services/accountService.js';
 import { createAdapter } from '../services/adapterRegistry.js';
 import { verifyWebdavToken } from '../services/smbCredentialService.js';
@@ -153,19 +159,28 @@ async function sendFile(req, res, { bodyless }) {
 	return stream.pipe(res);
 }
 
-router.head('*splat', async (req, res, next) => {
+// Falha do provider na leitura é indisponibilidade do backend remoto, não erro
+// do cliente: o handler genérico do app.js a mapearia para 400/500 e o rclone
+// trataria 400 como permanente.
+function failDownload(res, error) {
+	console.error(error);
+	if (res.headersSent) return res.destroy();
+	return res.status(503).end();
+}
+
+router.head('*splat', async (req, res) => {
 	try {
 		await sendFile(req, res, { bodyless: true });
 	} catch (error) {
-		next(error);
+		failDownload(res, error);
 	}
 });
 
-router.get('*splat', async (req, res, next) => {
+router.get('*splat', async (req, res) => {
 	try {
 		await sendFile(req, res, { bodyless: false });
 	} catch (error) {
-		next(error);
+		failDownload(res, error);
 	}
 });
 
@@ -189,10 +204,14 @@ router.mkcol('*splat', async (req, res, next) => {
 		const allocation = selectBestAccount(req.webdavUserId, 0);
 		const adapter = createAdapter(allocation.selected);
 
+		// remote_file_id só faz sentido dentro da conta que o emitiu; a alocação
+		// pode escolher outra conta, e aí o pai remoto é resolvido pelo caminho.
+		const sameAccountParent = parent?.file?.cloud_account_id === allocation.selected.id;
+
 		const folder = await adapter.createFolder({
 			name,
 			virtualPath: parentPath,
-			remoteParentId: parent?.file?.remote_file_id || null,
+			remoteParentId: (sameAccountParent && parent.file.remote_file_id) || null,
 		});
 
 		createFileMetadata({
@@ -213,7 +232,50 @@ router.mkcol('*splat', async (req, res, next) => {
 	}
 });
 
-router.put('*splat', async (req, res, next) => {
+// ponytail: sobrescrever é upload novo + promoção do nome — os adapters não têm
+// "trocar conteúdo". Perde histórico de versões do provider. Upgrade quando
+// algum adapter expuser update de conteúdo.
+async function replaceExisting(userId, existing, uploaded, name) {
+	const account = getAccountById(userId, uploaded.cloud_account_id);
+	const adapter = createAdapter(account);
+
+	let removedExisting = false;
+	const removeExisting = async () => {
+		if (removedExisting) return;
+		removedExisting = true;
+		const previousAccount = getAccountById(userId, existing.cloud_account_id);
+		if (previousAccount) await createAdapter(previousAccount).deleteFile(existing);
+	};
+
+	let renamed;
+	try {
+		renamed = await adapter.renameFile(uploaded, name);
+	} catch (error) {
+		// Provider de chave derivada do caminho recusa promover para um nome
+		// ocupado. Os bytes novos já estão no remoto, então apagar o antigo aqui
+		// não perde conteúdo.
+		await removeExisting();
+		renamed = await adapter.renameFile(uploaded, name);
+	}
+
+	const promotedId = renamed?.remoteFileId || uploaded.remote_file_id;
+
+	// Em provider de chave determinística a promoção já sobrescreveu o objeto
+	// antigo: apagar pelo remote_file_id agora apagaria justamente o conteúdo novo.
+	if (existing.remote_file_id !== promotedId) await removeExisting();
+
+	await fileCacheService.invalidate(existing);
+	// A promoção que troca o id remoto também troca a chave do cache; o que foi
+	// publicado sob o nome temporário fica órfão e é rebaixado aqui.
+	if (promotedId !== uploaded.remote_file_id) await fileCacheService.invalidate(uploaded);
+
+	deleteFileMetadata(userId, existing.id);
+	// Sem syncAccount: o rename já é conhecido, e uma listagem nova invalidaria o
+	// cache que o próprio upload acabou de publicar.
+	renameFileMetadata(userId, uploaded.id, name, promotedId);
+}
+
+router.put('*splat', async (req, res) => {
 	try {
 		const { parentPath, name } = parseDavPath(req.path, BASE_PATH);
 		if (!name) return res.status(405).end();
@@ -221,42 +283,33 @@ router.put('*splat', async (req, res, next) => {
 		const existing = listFilesByPath(req.webdavUserId, parentPath).find((item) => item.file_name === name);
 		if (existing?.is_folder) return res.status(405).end();
 
-		// ponytail: sobrescrever é delete + upload — os adapters não têm "trocar
-		// conteúdo". Perde histórico de versões do provider. Upgrade quando algum
-		// adapter expuser update de conteúdo.
-		if (existing) {
-			const account = getAccountById(req.webdavUserId, existing.cloud_account_id);
-			if (account) await createAdapter(account).deleteFile(existing);
-			// Invalida antes do upload: sem isso o cache continua servindo os bytes
-			// antigos na janela entre o delete e o syncAccount que runUpload dispara.
-			fileCacheService.invalidate(existing);
-			deleteFileMetadata(req.webdavUserId, existing.id);
-		}
-
+		// Sobrescrita sobe com nome temporário: se o upload falhar no meio, o
+		// arquivo atual continua íntegro no provider e no banco.
+		const uploadName = existing ? `${name}.omnicloud-upload-${randomUUID()}` : name;
+		const mimeType = req.headers['content-type'] || 'application/octet-stream';
 		const size = Number(req.headers['content-length'] || 0);
 		const allocation = selectBestAccount(req.webdavUserId, size);
 		const session = createUploadSession({
 			user_id: req.webdavUserId,
-			file_name: name,
+			file_name: uploadName,
 			size,
-			mime_type: req.headers['content-type'] || 'application/octet-stream',
+			mime_type: mimeType,
 			virtual_path: parentPath,
 			remote_parent_id: null,
 			cloud_account_id: allocation.selected.id,
 			fallback_chain: allocation.fallbackChain.map((account) => account.id),
 		});
 
-		await runUpload({
-			session,
-			stream: req,
-			fileName: name,
-			mimeType: req.headers['content-type'] || 'application/octet-stream',
-		});
+		const uploaded = await runUpload({ session, stream: req, fileName: uploadName, mimeType });
+
+		if (existing) await replaceExisting(req.webdavUserId, existing, uploaded, name);
 
 		return res.status(existing ? 204 : 201).end();
 	} catch (error) {
+		console.error(error);
 		if (/space|quota/i.test(error?.message || '')) return res.status(507).end();
-		return next(error);
+		// Falha de escrita no provider é erro do backend remoto, não do cliente.
+		return res.status(502).end();
 	}
 });
 

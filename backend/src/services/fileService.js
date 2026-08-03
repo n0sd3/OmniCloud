@@ -226,6 +226,14 @@ export function clearFilesForAccount(userId, cloudAccountId) {
 	db.prepare('DELETE FROM file_metadata WHERE user_id = ? AND cloud_account_id = ?').run(userId, cloudAccountId);
 }
 
+export function renameFileMetadata(userId, id, fileName, remoteFileId) {
+	db.prepare(`
+    UPDATE file_metadata
+    SET file_name = ?, remote_file_id = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ? AND id = ?
+  `).run(fileName, remoteFileId, userId, id);
+}
+
 export function deleteFileMetadata(userId, id) {
 	db.prepare('DELETE FROM file_metadata WHERE user_id = ? AND id = ?').run(userId, id);
 }

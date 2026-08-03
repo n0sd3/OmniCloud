@@ -3,6 +3,7 @@
 
 import { execFile, execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
@@ -16,8 +17,16 @@ const MOUNT_ROOT = '/mnt/omnicloud';
 const RCLONE_CONF = '/root/.config/rclone/rclone.conf';
 const SMB_CONF = '/etc/samba/smb.conf';
 const SMB_CONF_BASE = '/app/smb.conf.base';
+const system = {
+	run,
+	mkdir: mkdirSync,
+	exists: existsSync,
+	log: console.log,
+	error: console.error,
+};
 
-// userId -> username, para o removeMount saber qual conta Samba apagar.
+// userId -> { username, token }: username para o removeMount saber qual conta
+// Samba apagar, token para detectar rotação da credencial WebDAV.
 const mounted = new Map();
 
 // Config do Samba é gerado a partir de dados da API e recarregado ao vivo; um
@@ -116,13 +125,23 @@ async function ensureSystemUser(username) {
 	}
 }
 
-async function ensureMount(user) {
+export async function ensureMount(user, operations = system) {
 	const target = `${MOUNT_ROOT}/${user.userId}`;
-	if (mounted.has(user.userId)) return;
+	const current = mounted.get(user.userId);
+	if (current?.token === user.webdavToken) return;
 
-	mkdirSync(target, { recursive: true });
+	// O daemon do rclone lê a credencial uma vez no mount: reescrever o
+	// rclone.conf não basta quando o PUT /api/smb rotaciona o token.
+	if (current) {
+		await operations.run('fusermount3', ['-u', target]).catch((error) =>
+			operations.error(`unmount failed for ${target}: ${error.message}`),
+		);
+		mounted.delete(user.userId);
+	}
 
-	await run('rclone', [
+	operations.mkdir(target, { recursive: true });
+
+	await operations.run('rclone', [
 		'mount',
 		`omnicloud-${user.userId}:`,
 		target,
@@ -142,25 +161,25 @@ async function ensureMount(user) {
 		'30s',
 	]);
 
-	mounted.set(user.userId, user.username);
-	console.log(`mounted ${target}`);
+	mounted.set(user.userId, { username: user.username, token: user.webdavToken });
+	operations.log(`mounted ${target}`);
 }
 
-async function removeMount(userId, username) {
+export async function removeMount(userId, username, operations = system) {
 	const target = `${MOUNT_ROOT}/${userId}`;
 
-	if (existsSync(target)) {
-		await run('fusermount3', ['-u', target]).catch((error) =>
-			console.error(`unmount failed for ${target}: ${error.message}`),
+	if (operations.exists(target)) {
+		await operations.run('fusermount3', ['-u', target]).catch((error) =>
+			operations.error(`unmount failed for ${target}: ${error.message}`),
 		);
-		console.log(`unmounted ${target}`);
+		operations.log(`unmounted ${target}`);
 	}
 
-	await run('smbpasswd', ['-x', username]).catch((error) =>
-		console.error(`smbpasswd -x failed for ${username}: ${error.message}`),
+	await operations.run('smbpasswd', ['-x', username]).catch((error) =>
+		operations.error(`smbpasswd -x failed for ${username}: ${error.message}`),
 	);
 	mounted.delete(userId);
-	console.log(`removed samba account ${username}`);
+	operations.log(`removed samba account ${username}`);
 }
 
 async function reconcile() {
@@ -180,8 +199,8 @@ async function reconcile() {
 		await ensureMount(user);
 	}
 
-	for (const [userId, username] of [...mounted]) {
-		if (!activeIds.has(userId)) await removeMount(userId, username);
+	for (const [userId, entry] of [...mounted]) {
+		if (!activeIds.has(userId)) await removeMount(userId, entry.username);
 	}
 
 	writeSmbConf(users);
@@ -199,9 +218,11 @@ async function loop() {
 	}
 }
 
-if (!SECRET) {
-	console.error('SMB_PROVISION_SECRET is required');
-	process.exit(1);
-}
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+	if (!SECRET) {
+		console.error('SMB_PROVISION_SECRET is required');
+		process.exit(1);
+	}
 
-loop();
+	loop();
+}

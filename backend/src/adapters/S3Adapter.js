@@ -260,6 +260,9 @@ export class S3Adapter extends BaseCloudAdapter {
 				Key: fromKey,
 			}),
 		);
+
+		// A chave do S3 vem do caminho, então renomear troca o remote_file_id.
+		return { remoteFileId: toKeyName };
 	}
 
 	async deleteFile(fileRecord) {

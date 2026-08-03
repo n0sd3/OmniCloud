@@ -5,6 +5,7 @@ import { MegaAdapter } from '../adapters/MegaAdapter.js';
 import { S3Adapter } from '../adapters/S3Adapter.js';
 import { PCloudAdapter } from '../adapters/PCloudAdapter.js';
 import { YandexAdapter } from '../adapters/YandexAdapter.js';
+import { BaseCloudAdapter } from '../adapters/BaseCloudAdapter.js';
 
 const adapters = {
 	google_drive: GoogleDriveAdapter,
@@ -14,6 +15,9 @@ const adapters = {
 	s3: S3Adapter,
 	pcloud: PCloudAdapter,
 	yandex: YandexAdapter,
+	// Provider simulado: nenhuma rota de conexão de conta cria contas 'base',
+	// então ele só aparece em testes.
+	base: BaseCloudAdapter,
 };
 
 export function createAdapter(account) {

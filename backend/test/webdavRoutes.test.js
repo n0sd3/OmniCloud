@@ -176,14 +176,46 @@ test('GET devolve o conteúdo do adapter', async () => {
 	assert.equal(body, 'remote-v1-12');
 });
 
-test('GET com Range em adapter sem suporte devolve 200 inteiro', async () => {
-	const response = await fetch(`${baseUrl}/webdav/Fotos/a.txt`, {
-		headers: { Authorization: auth, Range: 'bytes=0-3' },
-	});
+test('GET devolve 503 quando o provider falha antes de abrir o stream', async () => {
+	db.prepare(`
+		INSERT INTO file_metadata (id, user_id, virtual_path, file_name, is_folder, size, mime_type, cloud_account_id, remote_file_id)
+		VALUES ('provider-failure', ?, '/', 'provider-failure.txt', 0, 4, 'text/plain', 'acc-1', 'provider-failure')
+	`).run(LOCAL_USER_ID);
+	BaseCloudAdapter.prototype.getDownloadStream = async function getDownloadStream(file) {
+		if (file.id === 'provider-failure') throw new Error('provider unavailable');
+		return Readable.from([adapterBody]);
+	};
 
-	// O adapter base declara supportsRange: false, então a resposta é o corpo completo.
-	assert.equal(response.status, 200);
-	assert.equal(response.headers.get('content-range'), null);
+	try {
+		const response = await fetch(`${baseUrl}/webdav/provider-failure.txt`, {
+			headers: { Authorization: auth },
+		});
+		assert.equal(response.status, 503);
+	} finally {
+		BaseCloudAdapter.prototype.getDownloadStream = originalGetDownloadStream;
+		db.prepare("DELETE FROM file_metadata WHERE id = 'provider-failure'").run();
+	}
+});
+
+test('GET com Range em adapter sem suporte devolve 200 inteiro', async () => {
+	// Arquivo próprio e ainda não lido: um GET anterior deixaria o cache local
+	// quente, e cache quente serve Range com 206 mesmo sem suporte do adapter.
+	db.prepare(`
+		INSERT INTO file_metadata (id, user_id, virtual_path, file_name, is_folder, size, mime_type, cloud_account_id, remote_file_id, remote_modified_time)
+		VALUES ('f-no-range', ?, '/Fotos/', 'no-range.txt', 0, 12, 'text/plain', 'acc-1', 'r-no-range', NULL)
+	`).run(LOCAL_USER_ID);
+
+	try {
+		const response = await fetch(`${baseUrl}/webdav/Fotos/no-range.txt`, {
+			headers: { Authorization: auth, Range: 'bytes=0-3' },
+		});
+
+		// O adapter base declara supportsRange: false, então a resposta é o corpo completo.
+		assert.equal(response.status, 200);
+		assert.equal(response.headers.get('content-range'), null);
+	} finally {
+		db.prepare("DELETE FROM file_metadata WHERE id = 'f-no-range'").run();
+	}
 });
 
 test('GET serves a cached WebDAV Range without calling the adapter', async () => {

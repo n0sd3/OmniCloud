@@ -280,6 +280,9 @@ export class YandexAdapter extends BaseCloudAdapter {
 			method: 'POST',
 			query: { from, path: to, overwrite: 'false' },
 		});
+
+		// O id remoto do Yandex é o caminho, então renomear o troca.
+		return { remoteFileId: to };
 	}
 
 	async deleteFile(fileRecord) {
