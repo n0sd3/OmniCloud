@@ -13,12 +13,13 @@ export function useFileActions({
 	uploadQueueStore,
 	refresh,
 	getPreviewType,
-	previewUnsupportedMessage = 'Preview belum didukung untuk tipe file ini.',
+	previewUnsupportedMessage,
 	onProgress,
 }) {
 	if (!errorRef || typeof t !== 'function' || typeof getFileCategory !== 'function' || !uploadQueueStore || typeof refresh !== 'function') {
 		throw new Error('useFileActions: required options missing');
 	}
+	previewUnsupportedMessage = previewUnsupportedMessage ?? t('preview.notAvailable');
 
 	const runWithProgress = (label, task) => (typeof onProgress === 'function'
 		? onProgress(label, task)
