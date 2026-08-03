@@ -46,10 +46,13 @@ async function saveSmbPassword() {
 }
 
 async function disableSmb() {
+	smbError.value = '';
 	smbLoading.value = true;
 	try {
 		const { data } = await api.disableSmbAccess();
 		smb.value = data;
+	} catch (error) {
+		smbError.value = error.message;
 	} finally {
 		smbLoading.value = false;
 	}
