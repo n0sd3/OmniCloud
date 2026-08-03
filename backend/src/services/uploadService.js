@@ -6,6 +6,7 @@ import { createFileMetadata, getFileByRemoteId } from './fileService.js';
 import { emitUploadEvent } from './websocketHub.js';
 import { getUploadSessionForUser, updateUploadSession, removeUploadSession } from './uploadSessionService.js';
 import { syncAccount } from './syncService.js';
+import { fileCacheService } from './fileCacheService.js';
 import { isAuthError } from '../utils/providerErrors.js';
 
 // Proxy da Cloudflare corta o corpo da request em 100 MB (plano free).
@@ -25,6 +26,12 @@ export function needsChunkedUpload(req, size) {
 async function runUpload({ session, stream, fileName, mimeType }) {
 	let activeAccountId = session.cloud_account_id;
 	const tried = new Set();
+	let capture = { stream, discard: async () => {} };
+	try {
+		capture = fileCacheService.captureUpload(stream, session.id);
+	} catch (error) {
+		console.warn('Local file cache capture failed:', error);
+	}
 
 	const attemptUpload = async (accountId) => {
 		tried.add(accountId);
@@ -35,7 +42,7 @@ async function runUpload({ session, stream, fileName, mimeType }) {
 		const adapter = createAdapter(account);
 
 		const result = await adapter.uploadStream({
-			stream,
+			stream: capture.stream,
 			size: session.size,
 			fileName,
 			mimeType,
@@ -91,6 +98,11 @@ async function runUpload({ session, stream, fileName, mimeType }) {
 
 		await syncAccount(session.user_id, account);
 		metadata = getFileByRemoteId(session.user_id, account.id, uploadResponse.remoteFileId) || metadata;
+		try {
+			await fileCacheService.commitCapture(capture, metadata);
+		} catch (error) {
+			console.warn('Local file cache commit failed:', error);
+		}
 
 		updateUploadSession(session.id, { status: 'completed', cloud_account_id: account.id });
 		emitUploadEvent(session.id, {
@@ -112,6 +124,11 @@ async function runUpload({ session, stream, fileName, mimeType }) {
 		throw error;
 	} finally {
 		removeUploadSession(session.id);
+		try {
+			await capture.discard();
+		} catch (error) {
+			console.warn('Local file cache cleanup failed:', error);
+		}
 	}
 }
 

@@ -5,9 +5,11 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 
 process.env.DATABASE_PATH = path.join(os.tmpdir(), `omnicloud-test-${process.pid}.db`);
+process.env.FILE_CACHE_PATH = path.join(os.tmpdir(), `omnicloud-upload-chunks-${process.pid}`);
 
 const { handleChunk, needsChunkedUpload } = await import('../src/services/uploadService.js');
 const { createUploadSession } = await import('../src/services/uploadSessionService.js');
+const { createLocalFileStore } = await import('../src/services/localFileStore.js');
 
 const USER_ID = 'test-user';
 
@@ -41,10 +43,18 @@ function collectingUpload() {
 	});
 }
 
+function capturingUpload() {
+	const store = createLocalFileStore({ rootDir: process.env.FILE_CACHE_PATH });
+	return ({ stream, ...options }) => {
+		const capture = store.captureUpload(stream, 'chunk-capture');
+		return collectingUpload()({ ...options, stream: capture.stream }).finally(() => capture.discard());
+	};
+}
+
 test('chunks sequenciais remontam o arquivo original', async () => {
 	const chunks = ['alpha-', 'beta-', 'gamma'];
 	const session = newSession(chunks.join('').length);
-	const upload = collectingUpload();
+	const upload = capturingUpload();
 	let result = null;
 
 	for (const [index, chunk] of chunks.entries()) {
