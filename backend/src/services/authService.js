@@ -143,6 +143,7 @@ export function getAuthSummary(user) {
 		mode: env.appMode,
 		requiresAuth: env.appMode === 'hosted',
 		authenticated: Boolean(user),
+		registrationEnabled: isRegistrationEnabled(),
 		user: serializeUser(user),
 	};
 }
