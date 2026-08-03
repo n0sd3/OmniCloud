@@ -13,4 +13,11 @@ PROVISIONER_PID=$!
 
 trap 'kill $SMBD_PID $PROVISIONER_PID 2>/dev/null; exit 0' TERM INT
 
-wait -n $SMBD_PID $PROVISIONER_PID
+# `wait -n` é bashism; /bin/sh do Debian é dash. Poll portátil que sai assim que
+# qualquer um dos dois filhos morre, para o Docker reiniciar o container.
+while kill -0 "$SMBD_PID" 2>/dev/null && kill -0 "$PROVISIONER_PID" 2>/dev/null; do
+	sleep 5
+done
+
+kill "$SMBD_PID" "$PROVISIONER_PID" 2>/dev/null
+exit 1

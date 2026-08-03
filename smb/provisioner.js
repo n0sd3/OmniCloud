@@ -17,7 +17,16 @@ const RCLONE_CONF = '/root/.config/rclone/rclone.conf';
 const SMB_CONF = '/etc/samba/smb.conf';
 const SMB_CONF_BASE = '/app/smb.conf.base';
 
-const mounted = new Set();
+// userId -> username, para o removeMount saber qual conta Samba apagar.
+const mounted = new Map();
+
+// Config do Samba é gerado a partir de dados da API e recarregado ao vivo; um
+// username com ']', '=' ou newline injetaria diretivas. Valida antes de usar.
+const USERNAME_PATTERN = /^[a-z0-9._-]+$/;
+
+function isSafeUsername(username) {
+	return USERNAME_PATTERN.test(String(username || ''));
+}
 
 async function fetchUsers() {
 	const response = await fetch(`${API_URL}/internal/smb/users`, {
@@ -124,21 +133,30 @@ async function ensureMount(user) {
 		'30s',
 	]);
 
-	mounted.add(user.userId);
+	mounted.set(user.userId, user.username);
 	console.log(`mounted ${target}`);
 }
 
-async function removeMount(userId) {
+async function removeMount(userId, username) {
 	const target = `${MOUNT_ROOT}/${userId}`;
-	if (!existsSync(target)) return;
 
-	await run('fusermount3', ['-u', target]).catch(() => {});
+	if (existsSync(target)) {
+		await run('fusermount3', ['-u', target]).catch(() => {});
+		console.log(`unmounted ${target}`);
+	}
+
+	await run('smbpasswd', ['-x', username]).catch(() => {});
 	mounted.delete(userId);
-	console.log(`unmounted ${target}`);
+	console.log(`removed samba account ${username}`);
 }
 
 async function reconcile() {
-	const users = await fetchUsers();
+	const fetched = await fetchUsers();
+	const users = fetched.filter((user) => {
+		if (isSafeUsername(user.username)) return true;
+		console.error(`skipping user with unsafe username: ${JSON.stringify(user.username)}`);
+		return false;
+	});
 	const activeIds = new Set(users.map((user) => user.userId));
 
 	writeRcloneConf(users);
@@ -149,8 +167,8 @@ async function reconcile() {
 		await ensureMount(user);
 	}
 
-	for (const userId of [...mounted]) {
-		if (!activeIds.has(userId)) await removeMount(userId);
+	for (const [userId, username] of [...mounted]) {
+		if (!activeIds.has(userId)) await removeMount(userId, username);
 	}
 
 	writeSmbConf(users);
