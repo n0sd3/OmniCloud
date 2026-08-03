@@ -61,11 +61,12 @@ export function useFileActions({
 		isDetailsOpen,
 		openDetails,
 		closeDetails,
+		setDetailsFile,
 	} = useFileDetailsModal({
 		fetchDetails: (file) => api.getFileDetails(file.id),
-		onError: (error) => {
-			errorRef.value = error.message;
-		},
+		// ponytail: enrichment now runs on every selection (see useFileListView's debounce),
+		// not just an explicit "Details" click, so a failure here must not paint the
+		// page-level error banner. The panel just keeps showing the list-row data.
 	});
 
 	const {
@@ -245,6 +246,7 @@ export function useFileActions({
 		isDetailsOpen,
 		openDetails,
 		closeDetails,
+		setDetailsFile,
 		renameSelectedFile,
 		deleteSelectedFile,
 		downloadSelection,

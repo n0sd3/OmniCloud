@@ -205,6 +205,13 @@ export function useFileListView({
 	// ponytail: um unico timer de debounce. Se um dia houver mais de um inspector por
 	// pagina, cada instancia precisa do seu.
 	let detailsDebounce = null;
+	// clearTimeout so cancela um timer que ainda nao disparou; nao cancela um fetch
+	// ja em voo. Com selecao rapida, uma resposta antiga pode chegar depois de uma
+	// mais nova. requestId identifica quem e o pedido mais recente; lastGoodDetailsFile
+	// guarda o ultimo resultado valido para restaurar se uma resposta atrasada
+	// sobrescrever detailsFile por cima dele.
+	let detailsRequestId = 0;
+	let lastGoodDetailsFile = null;
 
 	watch([actionsApi.primarySelectedFile, isInspectorOpen], ([file, open]) => {
 		if (detailsDebounce) window.clearTimeout(detailsDebounce);
@@ -212,8 +219,21 @@ export function useFileListView({
 		if (actionsApi.detailsFile.value?.id === file.id) return;
 		detailsDebounce = window.setTimeout(async () => {
 			const targetId = file.id;
+			const requestId = ++detailsRequestId;
 			await actionsApi.openDetails(file);
-			if (actionsApi.primarySelectedFile.value?.id !== targetId) actionsApi.closeDetails();
+			if (requestId !== detailsRequestId) {
+				// uma selecao mais nova ja disparou outro pedido enquanto este estava
+				// em voo; descarta esta resposta atrasada sem mexer no que o pedido
+				// mais novo ja estabeleceu.
+				actionsApi.setDetailsFile(lastGoodDetailsFile);
+				return;
+			}
+			if (actionsApi.primarySelectedFile.value?.id !== targetId) {
+				actionsApi.closeDetails();
+				lastGoodDetailsFile = null;
+				return;
+			}
+			lastGoodDetailsFile = actionsApi.detailsFile.value;
 		}, 300);
 	});
 
