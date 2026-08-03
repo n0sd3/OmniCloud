@@ -44,12 +44,12 @@ mudança quatro vezes, três vezes seguidas. Extrair primeiro deixa o resto bara
 
 As diferenças reais entre as views são poucas:
 
-| View | Cabeçalho | Altura da lista | Extras |
-|---|---|---|---|
-| MyDrive | breadcrumb navegável | `flex-1` (ocupa a tela) | dropzone, highlight de arquivo, `nameField='display_name'` |
-| Starred | `h1` | `max-h-[min(52vh,520px)]` | mensagem de erro |
-| Recent | `h1` | idem | mensagem de erro |
-| SharedWithMe | `h1` | idem | mensagem de erro, expansão de filhos |
+| View | Cabeçalho | Altura da lista | Agrupamento | Extras |
+|---|---|---|---|---|
+| MyDrive | breadcrumb navegável | `flex-1` (ocupa a tela) | não | dropzone, highlight, `nameField='display_name'`, colunas ordenáveis |
+| Starred | `h1` | `max-h-[min(52vh,520px)]` | não | colunas ordenáveis |
+| Recent | `h1` | `max-h-[min(70vh,780px)]` | por recência, headers sticky | colunas não ordenáveis |
+| SharedWithMe | breadcrumb de pilha | `max-h-[min(70vh,780px)]` | por recência, headers sticky | rename e delete desabilitados |
 
 Essas diferenças viram props e slots.
 
@@ -65,9 +65,20 @@ Props:
 - `view` (Object, obrigatório) — retorno de `useFileListView`.
 - `nameField` (String, default `'file_name'`).
 - `fillHeight` (Boolean, default `false`) — `true` no MyDrive, lista ocupa a
-  altura restante; `false` aplica `max-h-[min(52vh,520px)]`.
+  altura restante.
+- `listMaxHeightClass` (String, default `'max-h-[min(70vh,780px)]'`) — ignorada
+  quando `fillHeight` é `true`.
+- `groups` (Array, default `null`) — quando presente, renderiza grupos com header
+  sticky em vez de lista plana. Formato `{ key, label, items }`, o mesmo que
+  `useRecencyGroups` já devolve.
+- `sortable` (Boolean, default `false`) — repassada ao `FileListHeader`.
 - `highlightedFileId` (String, default `null`).
-- `errorMessage` (String, default `''`).
+- `emptyMessage` (String, obrigatório) — cada view tem a sua (`drive.noFiles`,
+  `recent.empty`, `shared.empty`).
+- `allowRename` (Boolean, default `true`) e `allowDelete` (Boolean, default
+  `true`) — `false` nos dois no SharedWithMe.
+- `canOpenFolder` (Boolean, default `true`) — `false` no Recent, que só lista
+  arquivos.
 
 Slots:
 
@@ -86,6 +97,11 @@ O componente mantém o `useIncrementalRender` internamente (mesmos parâmetros d
 hoje: `initialCount: 80`, `step: 80`, `threshold: 240`) e expõe `renderCount` via
 `defineExpose`, porque o MyDrive precisa forçar a renderização de um item para
 fazer scroll até o resultado de busca.
+
+Quando `groups` está presente, o recorte incremental continua sendo calculado
+sobre `sortedFiles` e os grupos são filtrados pelos ids visíveis — exatamente o
+que `renderedGroupedFiles` faz hoje em Recent e SharedWithMe. Essa lógica
+duplicada nas duas views passa a existir só dentro do `FileListSurface`.
 
 Depois dessa extração as quatro views ficam com fetch, navegação e o
 `<FileListSurface>`. Nenhuma mudança visível para o usuário nesta etapa.
