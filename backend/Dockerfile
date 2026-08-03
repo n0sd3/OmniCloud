@@ -9,6 +9,17 @@ FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		ffmpeg \
+		fonts-dejavu-core \
+		libreoffice-calc \
+		libreoffice-core \
+		libreoffice-impress \
+		libreoffice-writer \
+		poppler-utils \
+	&& rm -rf /var/lib/apt/lists/*
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY backend/package*.json ./
 COPY backend/src ./src
