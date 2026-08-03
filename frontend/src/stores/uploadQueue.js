@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia';
 import { api } from '../services/api';
+import { i18n } from '../i18n';
+import { formatBytes } from '../composables/useFormatFile.js';
 
 function normalizePath(path) {
 	if (!path || path === '/') return '/';
@@ -42,6 +44,17 @@ function isCancellable(operation) {
 
 function createBatchId() {
 	return crypto.randomUUID();
+}
+
+// ponytail: confirm nativo — troca por modal se o aviso precisar de mais contexto.
+function confirmChunkedUpload(file, chunked) {
+	return window.confirm(
+		i18n.global.t('upload.chunkedPrompt', {
+			name: file.name,
+			size: formatBytes(file.size),
+			limit: formatBytes(chunked.limit),
+		}),
+	);
 }
 
 export const useUploadQueueStore = defineStore('uploadQueue', {
@@ -250,6 +263,8 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 			const entries = Array.from(files || []);
 			const batchId = createBatchId();
 			const batchTotal = entries.length;
+			// Decisão de enviar em partes vale para o lote inteiro, não por arquivo.
+			let chunkedAccepted = null;
 
 			for (const rawEntry of entries) {
 				const { file, relativePath } = normalizeUploadEntry(rawEntry);
@@ -263,6 +278,20 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 						mime_type: file.type || 'application/octet-stream',
 						virtual_path: targetPath,
 					}, { signal: queueItem.abortController.signal });
+
+					if (data.chunked?.required) {
+						if (chunkedAccepted === null) {
+							chunkedAccepted = confirmChunkedUpload(file, data.chunked);
+						}
+
+						if (!chunkedAccepted) {
+							this.updateUpload(queueItem.id, {
+								status: 'failed',
+								error: i18n.global.t('upload.chunkedDeclined'),
+							});
+							continue;
+						}
+					}
 
 					const socket = api.createUploadSocket(data.upload_id);
 					this.updateUpload(queueItem.id, {
@@ -307,7 +336,13 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 						});
 					};
 
-					await api.uploadFile(data.upload_id, file, { signal: queueItem.abortController.signal });
+					if (data.chunked?.required) {
+						await api.uploadFileInChunks(data.upload_id, file, data.chunked.chunk_size, {
+							signal: queueItem.abortController.signal,
+						});
+					} else {
+						await api.uploadFile(data.upload_id, file, { signal: queueItem.abortController.signal });
+					}
 				} catch (error) {
 					if (isAbortError(error) || queueItem.abortController.signal.aborted) {
 						this.updateUpload(queueItem.id, {
