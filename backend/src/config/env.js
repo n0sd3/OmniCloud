@@ -43,6 +43,8 @@ export const env = {
 		process.env.YANDEX_REDIRECT_URI || 'http://localhost:8787/api/accounts/yandex/callback',
 	smbProvisionSecret: process.env.SMB_PROVISION_SECRET || '',
 	smbHost: process.env.SMB_HOST || 'omnicloud',
+	thumbnailCacheDir: process.env.THUMBNAIL_CACHE_DIR || path.resolve(process.cwd(), 'data/thumbnails'),
+	previewCacheDir: process.env.PREVIEW_CACHE_DIR || path.resolve(process.cwd(), 'data/previews'),
 	fileCachePath: process.env.FILE_CACHE_PATH || path.resolve(process.cwd(), '.cache/files'),
 	fileCacheWarmTtlMs: Number(process.env.FILE_CACHE_WARM_TTL_MS || 60 * 60 * 1000),
 	fileCacheConcurrency: Math.max(1, Number(process.env.FILE_CACHE_CONCURRENCY || 3)),
