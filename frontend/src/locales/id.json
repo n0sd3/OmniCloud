@@ -178,7 +178,24 @@
 	},
 	"settings": {
 		"newAccounts": "Pendaftaran akun baru",
-		"newAccountsDesc": "Izinkan siapa saja membuat akun baru di instance ini."
+		"newAccountsDesc": "Izinkan siapa saja membuat akun baru di instance ini.",
+		"smb": {
+			"title": "Akses SMB",
+			"description": "Pasang drive OmniCloud Anda secara native di Linux, macOS, iOS, dan Windows.",
+			"password": "Kata sandi SMB",
+			"passwordHint": "Minimal 8 karakter. Ini terpisah dari kata sandi akun Anda.",
+			"enable": "Aktifkan akses SMB",
+			"update": "Perbarui kata sandi",
+			"disable": "Nonaktifkan",
+			"enabled": "Akses SMB aktif",
+			"username": "Nama pengguna",
+			"sharePath": "Jalur berbagi",
+			"howToMount": "Cara memasang",
+			"macos": "Finder → Go → Connect to Server",
+			"windows": "Explorer → Petakan drive jaringan",
+			"ios": "Files → Browse → Connect to Server",
+			"linux": "mount -t cifs //<host>/<share> /mnt/point -o user=<username>"
+		}
 	},
 	"quota": {
 		"title": "Penyimpanan",

@@ -178,7 +178,24 @@
 	},
 	"settings": {
 		"newAccounts": "New account registration",
-		"newAccountsDesc": "Allow anyone to create a new account on this instance."
+		"newAccountsDesc": "Allow anyone to create a new account on this instance.",
+		"smb": {
+			"title": "SMB access",
+			"description": "Mount your OmniCloud drive natively on Linux, macOS, iOS and Windows.",
+			"password": "SMB password",
+			"passwordHint": "At least 8 characters. This is separate from your account password.",
+			"enable": "Enable SMB access",
+			"update": "Update password",
+			"disable": "Disable",
+			"enabled": "SMB access is enabled",
+			"username": "Username",
+			"sharePath": "Share path",
+			"howToMount": "How to mount",
+			"macos": "Finder → Go → Connect to Server",
+			"windows": "Explorer → Map network drive",
+			"ios": "Files → Browse → Connect to Server",
+			"linux": "mount -t cifs //<host>/<share> /mnt/point -o user=<username>"
+		}
 	},
 	"quota": {
 		"title": "Storage",

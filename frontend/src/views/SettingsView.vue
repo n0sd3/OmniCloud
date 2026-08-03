@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { IconMoon, IconSun, IconLanguage, IconCloud, IconLogout, IconChevronRight, IconUserPlus } from '@tabler/icons-vue';
+import { IconMoon, IconSun, IconLanguage, IconCloud, IconLogout, IconChevronRight, IconUserPlus, IconServer } from '@tabler/icons-vue';
 import DriveShell from '../components/DriveShell.vue';
 import idFlag from '../assets/id.svg';
 import usFlag from '../assets/us.svg';
@@ -20,6 +20,40 @@ const { user, isHosted } = storeToRefs(authStore);
 const theme = ref('light');
 const registrationEnabled = ref(true);
 const registrationLoading = ref(false);
+
+const smb = ref({ enabled: false, username: null, host: '', sharePath: null });
+const smbPassword = ref('');
+const smbLoading = ref(false);
+const smbError = ref('');
+
+async function saveSmbPassword() {
+	if (smbPassword.value.length < 8) {
+		smbError.value = t('settings.smb.passwordHint');
+		return;
+	}
+
+	smbError.value = '';
+	smbLoading.value = true;
+	try {
+		const { data } = await api.updateSmbAccess(smbPassword.value);
+		smb.value = data;
+		smbPassword.value = '';
+	} catch (error) {
+		smbError.value = error.message;
+	} finally {
+		smbLoading.value = false;
+	}
+}
+
+async function disableSmb() {
+	smbLoading.value = true;
+	try {
+		const { data } = await api.disableSmbAccess();
+		smb.value = data;
+	} finally {
+		smbLoading.value = false;
+	}
+}
 
 const languages = [
 	{ code: 'id', label: 'Bahasa Indonesia', flag: idFlag },
@@ -62,6 +96,8 @@ onMounted(async () => {
 		const { data } = await api.getAppSettings();
 		registrationEnabled.value = Boolean(data.registration_enabled);
 	}
+	const { data: smbData } = await api.getSmbAccess();
+	smb.value = smbData;
 });
 </script>
 
@@ -107,6 +143,40 @@ onMounted(async () => {
 						</span>
 						<IconChevronRight :size="18" :stroke="1.8" class="text-[#5f6368] dark:text-slate-400" />
 					</button>
+				</section>
+
+				<section class="rounded-2xl border border-[#e7edf6] bg-[#f8fafd] p-5 dark:border-slate-800 dark:bg-slate-800/70">
+					<h2 class="flex items-center gap-2 text-sm font-semibold text-[#202124] dark:text-slate-100">
+						<IconServer :size="18" :stroke="1.8" />
+						{{ t('settings.smb.title') }}
+					</h2>
+					<p class="mt-1 text-xs text-[#5f6368] dark:text-slate-400">{{ t('settings.smb.description') }}</p>
+
+					<div v-if="smb.enabled" class="mt-3 space-y-1 rounded-2xl border border-[#e7edf6] bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900/80">
+						<p class="text-[#202124] dark:text-slate-100">{{ t('settings.smb.username') }}: <span class="font-mono">{{ smb.username }}</span></p>
+						<p class="text-[#202124] dark:text-slate-100">{{ t('settings.smb.sharePath') }}: <span class="font-mono">{{ smb.sharePath }}</span></p>
+					</div>
+
+					<div class="mt-3 flex flex-col gap-2 sm:flex-row">
+						<input v-model="smbPassword" type="password" autocomplete="new-password" :placeholder="t('settings.smb.password')" class="flex-1 rounded-2xl border border-[#e7edf6] bg-white px-4 py-2 text-sm text-[#202124] outline-none focus:border-[#1a73e8] dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-100" />
+						<button type="button" :disabled="smbLoading" class="rounded-full bg-[#1a73e8] px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60" @click="saveSmbPassword">
+							{{ smb.enabled ? t('settings.smb.update') : t('settings.smb.enable') }}
+						</button>
+						<button v-if="smb.enabled" type="button" :disabled="smbLoading" class="rounded-full bg-[#fce8e6] px-4 py-2 text-sm font-semibold text-[#c5221f] transition disabled:opacity-60 dark:bg-red-950/40 dark:text-red-300" @click="disableSmb">
+							{{ t('settings.smb.disable') }}
+						</button>
+					</div>
+
+					<p v-if="smbError" class="mt-2 text-xs text-[#c5221f] dark:text-red-300">{{ smbError }}</p>
+					<p v-else class="mt-2 text-xs text-[#5f6368] dark:text-slate-400">{{ t('settings.smb.passwordHint') }}</p>
+
+					<div v-if="smb.enabled" class="mt-4 space-y-1 text-xs text-[#5f6368] dark:text-slate-400">
+						<p class="font-semibold text-[#202124] dark:text-slate-100">{{ t('settings.smb.howToMount') }}</p>
+						<p>macOS — {{ t('settings.smb.macos') }}</p>
+						<p>Windows — {{ t('settings.smb.windows') }}</p>
+						<p>iOS — {{ t('settings.smb.ios') }}</p>
+						<p>Linux — <span class="font-mono">{{ t('settings.smb.linux') }}</span></p>
+					</div>
 				</section>
 
 				<section v-if="isHosted" class="rounded-2xl border border-[#e7edf6] bg-[#f8fafd] p-5 dark:border-slate-800 dark:bg-slate-800/70">

@@ -66,6 +66,21 @@ export const settingsApi = {
 	},
 };
 
+export const smbApi = {
+	get() {
+		return request('/smb');
+	},
+	update(password) {
+		return request('/smb', {
+			method: 'PUT',
+			body: JSON.stringify({ password }),
+		});
+	},
+	disable() {
+		return request('/smb', { method: 'DELETE' });
+	},
+};
+
 export const api = {
 	listFiles(virtualPath = '/') {
 		const query = new URLSearchParams({ path: virtualPath }).toString();
@@ -252,6 +267,15 @@ export const api = {
 	},
 	updateAppSettings(payload) {
 		return settingsApi.updateAppSettings(payload);
+	},
+	getSmbAccess() {
+		return smbApi.get();
+	},
+	updateSmbAccess(password) {
+		return smbApi.update(password);
+	},
+	disableSmbAccess() {
+		return smbApi.disable();
 	},
 	getAllocation() {
 		return request('/allocation');
