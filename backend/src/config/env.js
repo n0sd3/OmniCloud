@@ -40,6 +40,8 @@ export const env = {
 	yandexClientSecret: process.env.YANDEX_CLIENT_SECRET || '',
 	yandexRedirectUri:
 		process.env.YANDEX_REDIRECT_URI || 'http://localhost:8787/api/accounts/yandex/callback',
+	smbProvisionSecret: process.env.SMB_PROVISION_SECRET || '',
+	smbHost: process.env.SMB_HOST || 'omnicloud',
 };
 
 export function redactEnv() {
@@ -60,5 +62,7 @@ export function redactEnv() {
 		dropboxRedirectUri: env.dropboxRedirectUri,
 		yandexClientId: env.yandexClientId ? '[configured]' : '[missing]',
 		yandexRedirectUri: env.yandexRedirectUri,
+		smbProvisionSecret: env.smbProvisionSecret ? '[configured]' : '[missing]',
+		smbHost: env.smbHost,
 	};
 }
