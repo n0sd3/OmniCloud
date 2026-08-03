@@ -6,6 +6,7 @@ import { useFileActions } from './useFileActions.js';
 import { useFileActionProgress } from './useFileActionProgress.js';
 import { getFileCategory } from './useFileType.js';
 import { matchesUpdatedFilter } from './useFileFilters.js';
+import { useFileListKeyboard } from './useFileListKeyboard.js';
 
 export function useFileListView({
 	loadFiles,
@@ -261,6 +262,26 @@ export function useFileListView({
 		await actionsApi.showSelectedFileDetails();
 	}
 
+	const keyboard = useFileListKeyboard({
+		sortedFiles,
+		selectedFileIds: actionsApi.selectedFileIds,
+		lastSelectedFileId: actionsApi.lastSelectedFileId,
+		replaceSelection: actionsApi.replaceSelection,
+		clearSelection: actionsApi.clearSelection,
+		isPreviewOpen: actionsApi.isPreviewOpen,
+		canPreview: actionsApi.canPreview,
+		openPreview: actionsApi.openPreview,
+		closePreview: actionsApi.closePreview,
+		renameSelectedFile,
+		deleteSelectedFile,
+		toggleInspector,
+		isGridView,
+		onCursorMove: (file) => {
+			if (typeof document === 'undefined') return;
+			document.querySelector(`[data-file-id="${CSS.escape(file.id)}"]`)?.scrollIntoView({ block: 'nearest' });
+		},
+	});
+
 	function handleGlobalPointer() {
 		if (actionsApi.contextMenu.value.visible) actionsApi.closeContextMenu();
 		activeFilterMenu.value = null;
@@ -322,6 +343,7 @@ export function useFileListView({
 		showSelectedFileDetails,
 		isInspectorOpen,
 		toggleInspector,
+		setOpenHandler: keyboard.setOpenHandler,
 		actionInProgress: actionProgress.isActionInProgress,
 		actionLabel: actionProgress.actionLabel,
 	};

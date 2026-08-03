@@ -93,7 +93,11 @@ const {
 	detailsFile,
 	isInspectorOpen,
 	toggleInspector,
+	setOpenHandler,
+	lastSelectedFileId,
 } = props.view;
+
+setOpenHandler((file) => emit('open', file));
 
 const { renderCount, visibleItems: renderedFiles, handleScroll: handleListScroll } = useIncrementalRender(sortedFiles, {
 	initialCount: 80,
@@ -151,11 +155,11 @@ defineExpose({ renderCount });
 								<template v-if="renderedGroups">
 									<template v-for="group in renderedGroups" :key="group.key">
 										<div class="sticky top-11 z-[1] bg-[#f8fafd] px-[18px] py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5f6368] dark:bg-slate-900 dark:text-slate-400">{{ group.label }}</div>
-										<FileListRow v-for="item in group.items" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
+										<FileListRow v-for="item in group.items" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :focused="lastSelectedFileId === item.id && selectedCount > 1" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
 									</template>
 								</template>
 								<template v-else>
-									<FileListRow v-for="item in renderedFiles" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
+									<FileListRow v-for="item in renderedFiles" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :focused="lastSelectedFileId === item.id && selectedCount > 1" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
 								</template>
 
 								<div v-if="isEmpty" class="p-[18px] text-[#5f6368] dark:text-slate-400">{{ emptyMessage }}</div>
@@ -167,15 +171,15 @@ defineExpose({ renderCount });
 				</div>
 
 				<div v-else class="relative">
-					<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+					<div class="grid grid-cols-1 gap-4 sm:grid-cols-2" :class="isInspectorOpen ? 'xl:grid-cols-3' : 'xl:grid-cols-4 2xl:grid-cols-5'">
 						<template v-if="renderedGroups">
 							<template v-for="group in renderedGroups" :key="group.key">
 								<div class="col-span-full rounded-2xl bg-[#f8fafd] px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5f6368] dark:bg-slate-900 dark:text-slate-400">{{ group.label }}</div>
-								<FileListGridCard v-for="item in group.items" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
+								<FileListGridCard v-for="item in group.items" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :focused="lastSelectedFileId === item.id && selectedCount > 1" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
 							</template>
 						</template>
 						<template v-else>
-							<FileListGridCard v-for="item in renderedFiles" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
+							<FileListGridCard v-for="item in renderedFiles" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :focused="lastSelectedFileId === item.id && selectedCount > 1" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
 						</template>
 
 						<div v-if="isEmpty" class="col-span-full rounded-2xl border border-dashed border-[#dadce0] bg-white px-5 py-8 text-center text-[#5f6368] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">{{ emptyMessage }}</div>
