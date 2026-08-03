@@ -7,6 +7,7 @@ import { useFileActionProgress } from './useFileActionProgress.js';
 import { getFileCategory } from './useFileType.js';
 import { matchesUpdatedFilter } from './useFileFilters.js';
 import { useFileListKeyboard } from './useFileListKeyboard.js';
+import { createGlobalPointerHandler } from './useFileListGlobalPointer.js';
 
 export function useFileListView({
 	loadFiles,
@@ -282,11 +283,12 @@ export function useFileListView({
 		},
 	});
 
-	function handleGlobalPointer() {
-		if (actionsApi.contextMenu.value.visible) actionsApi.closeContextMenu();
-		activeFilterMenu.value = null;
-		actionsApi.clearSelection();
-	}
+	const handleGlobalPointer = createGlobalPointerHandler({
+		contextMenu: actionsApi.contextMenu,
+		activeFilterMenu,
+		closeContextMenu: actionsApi.closeContextMenu,
+		clearSelection: actionsApi.clearSelection,
+	});
 
 	let refreshTimer = null;
 
