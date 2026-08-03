@@ -9,6 +9,7 @@ import settingsRoutes from './routes/settingsRoutes.js';
 import allocationRoutes from './routes/allocationRoutes.js';
 import smbRoutes from './routes/smbRoutes.js';
 import internalRoutes from './routes/internalRoutes.js';
+import webdavRoutes from './routes/webdavRoutes.js';
 import { env } from './config/env.js';
 import { attachAuthContext } from './middleware/authMiddleware.js';
 
@@ -36,6 +37,7 @@ export function createApp() {
 		};
 		next();
 	});
+	app.use('/webdav', webdavRoutes);
 	app.use(express.json());
 	app.use(attachAuthContext);
 
