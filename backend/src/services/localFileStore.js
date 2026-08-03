@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { createReadStream, createWriteStream, mkdirSync } from 'node:fs';
+import { createWriteStream, mkdirSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
@@ -21,6 +21,7 @@ function metadataFor(file) {
 }
 
 export function createLocalFileStore({ rootDir, logger = console }) {
+	const identityLocks = new Map();
 	const publicationStates = new Map();
 	const keyFor = (file) => crypto
 		.createHash('sha256')
@@ -34,7 +35,7 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 	const warn = (message) => logger?.warn?.(message);
 	const beginPublication = (file) => {
 		const key = keyFor(file);
-		const state = publicationStates.get(key) || { active: 0, latest: 0, pending: Promise.resolve() };
+		const state = publicationStates.get(key) || { active: 0, latest: 0 };
 		state.active += 1;
 		state.latest += 1;
 		publicationStates.set(key, state);
@@ -44,9 +45,19 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		state.active -= 1;
 		if (!state.active && publicationStates.get(key) === state) publicationStates.delete(key);
 	};
+	const withIdentityLock = async (file, operation) => {
+		const key = keyFor(file);
+		const previous = identityLocks.get(key) || Promise.resolve();
+		const current = previous.catch(() => {}).then(operation);
+		identityLocks.set(key, current);
+		try {
+			return await current;
+		} finally {
+			if (identityLocks.get(key) === current) identityLocks.delete(key);
+		}
+	};
 
 	async function readValid(file) {
-		await publicationStates.get(keyFor(file))?.pending.catch(() => {});
 		try {
 			const expected = metadataFor(file);
 			const paths = pathsFor(file);
@@ -90,7 +101,7 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 
 	async function publish(dataTemp, file, request) {
 		const { state, generation } = request;
-		const current = state.pending.catch(() => {}).then(async () => {
+		return withIdentityLock(file, async () => {
 			if (generation !== state.latest) {
 				await fsp.rm(dataTemp, { force: true });
 				return false;
@@ -103,18 +114,26 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 			}
 			return true;
 		});
-		state.pending = current;
-		return current;
 	}
 
 	return {
 		async getValidPath(file) {
-			return (await readValid(file))?.data || null;
+			return withIdentityLock(file, async () => (await readValid(file))?.data || null);
 		},
 
 		async openReadStream(file, range = {}) {
-			const valid = await readValid(file);
-			return valid ? createReadStream(valid.data, range) : null;
+			return withIdentityLock(file, async () => {
+				const valid = await readValid(file);
+				if (!valid) return null;
+				let handle;
+				try {
+					handle = await fsp.open(valid.data, 'r');
+					return handle.createReadStream(range);
+				} catch {
+					await handle?.close().catch(() => {});
+					return null;
+				}
+			});
 		},
 
 		async writeFromStream(file, stream) {
@@ -254,23 +273,27 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		},
 
 		async invalidate(file) {
-			const { data, sidecar } = pathsFor(file);
-			await Promise.all([fsp.rm(data, { force: true }), fsp.rm(sidecar, { force: true })]);
+			return withIdentityLock(file, async () => {
+				const { data, sidecar } = pathsFor(file);
+				await Promise.all([fsp.rm(data, { force: true }), fsp.rm(sidecar, { force: true })]);
+			});
 		},
 
 		async rebind(file) {
-			const { data, sidecar } = pathsFor(file);
-			try {
-				const metadata = JSON.parse(await fsp.readFile(sidecar, 'utf8'));
-				const stat = await fsp.stat(data);
-				if (stat.size !== metadata.size || stat.size !== Number(file.size || 0)) return false;
-				const sidecarTemp = tempPath(sidecar);
-				await fsp.writeFile(sidecarTemp, JSON.stringify(metadataFor(file)), { flag: 'wx' });
-				await fsp.rename(sidecarTemp, sidecar);
-				return true;
-			} catch {
-				return false;
-			}
+			return withIdentityLock(file, async () => {
+				const { data, sidecar } = pathsFor(file);
+				try {
+					const metadata = JSON.parse(await fsp.readFile(sidecar, 'utf8'));
+					const stat = await fsp.stat(data);
+					if (stat.size !== metadata.size || stat.size !== Number(file.size || 0)) return false;
+					const sidecarTemp = tempPath(sidecar);
+					await fsp.writeFile(sidecarTemp, JSON.stringify(metadataFor(file)), { flag: 'wx' });
+					await fsp.rename(sidecarTemp, sidecar);
+					return true;
+				} catch {
+					return false;
+				}
+			});
 		},
 
 		async reconcile(previousFiles, nextFiles, { preserveRemoteIds = [] } = {}) {

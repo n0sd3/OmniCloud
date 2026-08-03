@@ -155,6 +155,44 @@ test('read waits until data and sidecar publication complete', async () => {
 	assert.equal(await read(await store.openReadStream(replacement)), 'ghijkl');
 });
 
+test('a reader keeps its generation when publication starts during validation', async () => {
+	await store.writeFromStream(file, Readable.from(['abcdef']));
+	const replacement = { ...file, remote_modified_time: '2026-08-03T00:00:00Z' };
+	const { sidecar } = pathsFor(file);
+	const readFile = fs.readFile;
+	let oldSidecarRead;
+	let releaseReader;
+	const waitForOldSidecar = new Promise((resolve) => { oldSidecarRead = resolve; });
+	const holdReader = new Promise((resolve) => { releaseReader = resolve; });
+
+	fs.readFile = async (...args) => {
+		const result = await readFile(...args);
+		if (args[0] === sidecar && JSON.parse(result.toString()).remoteModifiedTime === file.remote_modified_time) {
+			oldSidecarRead();
+			await holdReader;
+		}
+		return result;
+	};
+	try {
+		const reader = store.openReadStream(file);
+		await waitForOldSidecar;
+		const replacementWrite = store.writeFromStream(replacement, Readable.from(['ghijkl']));
+		const publisherFinishedEarly = await Promise.race([
+			replacementWrite.then(() => true),
+			new Promise((resolve) => setTimeout(() => resolve(false), 25)),
+		]);
+		releaseReader();
+		const stream = await reader;
+		await replacementWrite;
+
+		assert.equal(publisherFinishedEarly, false);
+		assert.equal(await read(stream), 'abcdef');
+	} finally {
+		fs.readFile = readFile;
+		releaseReader();
+	}
+});
+
 test('an older slow invocation cannot overwrite a newer generation', async () => {
 	const newer = { ...file, remote_modified_time: '2026-08-03T00:00:00Z' };
 	let releaseOlder;
