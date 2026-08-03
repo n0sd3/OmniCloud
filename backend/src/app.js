@@ -16,6 +16,11 @@ import { attachAuthContext } from './middleware/authMiddleware.js';
 export function createApp() {
 	const app = express();
 
+	// O WebDAV não é consumido por browser, então CORS não se aplica a ele — e
+	// precisa vir antes do cors(), senão o preflight genérico responde por ele
+	// e o OPTIONS handler de webdavRoutes.js nunca executa.
+	app.use('/webdav', webdavRoutes);
+
 	app.use(
 		cors({
 			origin: env.corsOrigin,
@@ -37,7 +42,6 @@ export function createApp() {
 		};
 		next();
 	});
-	app.use('/webdav', webdavRoutes);
 	app.use(express.json());
 	app.use(attachAuthContext);
 

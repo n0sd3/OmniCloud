@@ -100,13 +100,15 @@ test('WebDAV recusa token errado', async () => {
 	assert.equal(response.status, 401);
 });
 
-test('OPTIONS recebe a resposta CORS global', async () => {
+test('OPTIONS anuncia DAV 1', async () => {
 	const response = await fetch(`${baseUrl}/webdav/`, {
 		method: 'OPTIONS',
 		headers: { Authorization: auth },
 	});
 
-	assert.equal(response.status, 204);
+	assert.equal(response.status, 200);
+	assert.equal(response.headers.get('dav'), '1');
+	assert.match(response.headers.get('allow'), /PROPFIND/);
 });
 
 test('PROPFIND Depth 1 na raiz lista os filhos', async () => {

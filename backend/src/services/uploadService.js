@@ -23,7 +23,7 @@ export function needsChunkedUpload(req, size) {
 	return isBehindCloudflare(req) && Number(size) > CLOUDFLARE_MAX_BODY_BYTES;
 }
 
-async function runUpload({ session, stream, fileName, mimeType }) {
+export async function runUpload({ session, stream, fileName, mimeType }) {
 	let activeAccountId = session.cloud_account_id;
 	const tried = new Set();
 	let capture = { stream, discard: async () => {} };

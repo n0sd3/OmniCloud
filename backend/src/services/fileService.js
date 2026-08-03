@@ -226,6 +226,10 @@ export function clearFilesForAccount(userId, cloudAccountId) {
 	db.prepare('DELETE FROM file_metadata WHERE user_id = ? AND cloud_account_id = ?').run(userId, cloudAccountId);
 }
 
+export function deleteFileMetadata(userId, id) {
+	db.prepare('DELETE FROM file_metadata WHERE user_id = ? AND id = ?').run(userId, id);
+}
+
 export function upsertFileMetadata(record) {
 	db.prepare(`
     INSERT INTO file_metadata (
