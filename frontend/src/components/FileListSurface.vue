@@ -121,7 +121,7 @@ defineExpose({ renderCount });
 		<div class="mb-3 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
 			<FileListSelectionBar v-if="selectedCount" :selected-count="selectedCount" :can-preview="canPreviewSelection" :can-toggle-star="canToggleStarSelection" :is-primary-starred="isPrimarySelectedStarred" :can-download="canDownloadSelection" :can-rename="canRename" :can-delete="allowDelete" :primary-file="primarySelectedFile" @clear="clearSelection" @preview="openPreview" @toggle-star="toggleSelectedFileStar" @download="downloadSelection" @rename="renameSelectedFile" @show-details="showSelectedFileDetails" @delete="deleteSelectedFile">
 				<template #prefix="{ primary }">
-					<slot name="selection-prefix" :primary="primary" />
+					<slot v-if="selectedCount === 1" name="selection-prefix" :primary="primary" />
 				</template>
 			</FileListSelectionBar>
 			<FileListFilterBar v-else :type-options="typeOptions" :owner-options="ownerOptions" :updated-options="updatedOptions" :selected-type-filter="selectedTypeFilter" :selected-owner-filter="selectedOwnerFilter" :selected-updated-filter="selectedUpdatedFilter" :active-filter-menu="activeFilterMenu" v-model:search-term="searchTerm" @toggle-filter-menu="toggleFilterMenu" @apply-filter="applyFilter" @clear-filter="clearFilter" />
