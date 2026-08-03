@@ -80,6 +80,53 @@ OmniCloud is a full-stack cloud drive aggregation platform that presents multipl
 
 > Detailed provider credential setup is available in [`docs/provider-setup.md`](docs/provider-setup.md).
 
+## 📡 SMB access
+
+SMB access exposes each user's OmniCloud virtual tree as a native network share. Traffic follows `SMB client → Samba → rclone mount → WebDAV → OmniCloud → cloud providers`, so Linux, macOS, iOS, and Windows can browse and edit connected cloud storage without a separate sync client.
+
+Before starting Docker Compose, define `SMB_PROVISION_SECRET` in the root `.env` file next to `docker-compose.yml`. Use a long random value and keep it secret; Compose intentionally refuses to start when it is missing or blank.
+
+```env
+SMB_PROVISION_SECRET=replace-this-with-a-long-random-secret
+SMB_HOST=omnicloud
+RCLONE_VFS_CACHE_MAX_SIZE=20G
+```
+
+The SMB variables are:
+
+- `SMB_PROVISION_SECRET` — required secret shared only by the API and SMB provisioner
+- `SMB_HOST` — hostname or LAN address shown to users for mounting; defaults to `omnicloud`
+- `RCLONE_VFS_CACHE_MAX_SIZE` — maximum rclone VFS cache size per configured mount; defaults to `20G`
+
+In the app, open **Settings → SMB access** (`Acesso SMB`), enter an SMB password of at least eight characters, and enable access. The page displays the generated username and share path. Replace `<host>` and `<username>` below with those displayed values:
+
+- **macOS:** Finder → Go → Connect to Server, then enter `smb://<host>/omnicloud-<username>`
+- **Windows:** File Explorer → Map network drive, then enter `\\<host>\omnicloud-<username>`
+- **iOS:** Files → Browse → Connect to Server, then enter `smb://<host>` and select `omnicloud-<username>`
+- **Linux:** `sudo mount -t cifs //<host>/omnicloud-<username> /mnt/omnicloud -o user=<username>,vers=3.0`
+
+Known limitations:
+
+- Overwriting a file deletes it and uploads a replacement, so the provider's version history is lost
+- Moving files between folders is not supported; only renaming within the same folder works
+- Each enabled user runs one rclone process with one VFS cache, which is the current scaling ceiling
+
+ZimaOS may already bind port `445` with its native Samba service. If Compose fails with `address already in use`, assign the `smb` container its own LAN IP using a `macvlan` network and remove its `ports:` block:
+
+```yaml
+networks:
+  lan:
+    driver: macvlan
+    driver_opts:
+      parent: eth0
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24
+          gateway: 192.168.1.1
+```
+
+Adjust `parent`, `subnet`, and `gateway` for the deployment network, then add `networks: [lan, default]` to the `smb` service.
+
 ## 🏗️ Project structure
 
 ```text
