@@ -6,12 +6,10 @@ import { IconChevronRight, IconFolder } from '@tabler/icons-vue';
 import DriveShell from '../components/DriveShell.vue';
 import FloatingProgressToast from '../components/FloatingProgressToast.vue';
 import FileListSurface from '../components/FileListSurface.vue';
-import FileDetailsModal from '../components/FileDetailsModal.vue';
 import { useFileListView } from '../composables/useFileListView';
 import { getPreviewType } from '../composables/useFileType.js';
 import { useAutoRefresh } from '../composables/useAutoRefresh.js';
 import { useTrackedFileActions } from '../composables/useTrackedFileActions.js';
-import { providerLabel } from '../composables/useFormatFile.js';
 import { useFileTreeStore } from '../stores/fileTree';
 import { useUploadQueueStore } from '../stores/uploadQueue';
 import { api } from '../services/api';
@@ -52,9 +50,6 @@ const {
 	closeContextMenu,
 	canPreview,
 	openPreview,
-	detailsFile,
-	isDetailsOpen,
-	closeDetails,
 } = view;
 
 watch(searchTerm, (term) => {
@@ -320,8 +315,6 @@ onBeforeUnmount(() => {
 					</div>
 				</template>
 			</FileListSurface>
-
-			<FileDetailsModal :file="detailsFile" :is-open="isDetailsOpen" :is-folder="detailsFile?.is_folder" :provider-label-fn="providerLabel" @close="closeDetails" />
 		</div>
 
 		<FloatingProgressToast :uploads="uploads" :total-progress="totalProgress" @close="uploadQueueStore.clearOperations" @close-item="uploadQueueStore.closeOperation" />

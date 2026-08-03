@@ -6,11 +6,9 @@ import { IconFolder } from '@tabler/icons-vue';
 import DriveShell from '../components/DriveShell.vue';
 import FloatingProgressToast from '../components/FloatingProgressToast.vue';
 import FileListSurface from '../components/FileListSurface.vue';
-import FileDetailsModal from '../components/FileDetailsModal.vue';
 import { useFileListView } from '../composables/useFileListView';
 import { getPreviewType } from '../composables/useFileType.js';
 import { useAutoRefresh } from '../composables/useAutoRefresh.js';
-import { providerLabel } from '../composables/useFormatFile.js';
 import { useFileTreeStore } from '../stores/fileTree';
 import { useUploadQueueStore } from '../stores/uploadQueue';
 import { api } from '../services/api';
@@ -40,9 +38,6 @@ const {
 	contextMenu,
 	closeContextMenu,
 	openPreview,
-	detailsFile,
-	isDetailsOpen,
-	closeDetails,
 	refresh,
 } = view;
 
@@ -85,8 +80,6 @@ useAutoRefresh(() => refresh(), { intervalMs: 30000 });
 				</button>
 			</template>
 		</FileListSurface>
-
-		<FileDetailsModal :file="detailsFile" :is-open="isDetailsOpen" :is-folder="detailsFile?.is_folder" :provider-label-fn="providerLabel" @close="closeDetails" />
 
 		<FloatingProgressToast :uploads="uploads" :total-progress="totalProgress" @close="uploadQueueStore.clearOperations" @close-item="uploadQueueStore.closeOperation" />
 	</DriveShell>

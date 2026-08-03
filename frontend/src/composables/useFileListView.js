@@ -190,6 +190,33 @@ export function useFileListView({
 		onProgress: actionProgress.runWithProgress,
 	});
 
+	const INSPECTOR_STORAGE_KEY = 'omnicloud-inspector-open';
+	const hasWindow = typeof window !== 'undefined';
+	const isInspectorOpen = ref(hasWindow && window.localStorage.getItem(INSPECTOR_STORAGE_KEY) === '1');
+
+	function toggleInspector() {
+		isInspectorOpen.value = !isInspectorOpen.value;
+	}
+
+	watch(isInspectorOpen, (open) => {
+		if (hasWindow) window.localStorage.setItem(INSPECTOR_STORAGE_KEY, open ? '1' : '0');
+	});
+
+	// ponytail: um unico timer de debounce. Se um dia houver mais de um inspector por
+	// pagina, cada instancia precisa do seu.
+	let detailsDebounce = null;
+
+	watch([actionsApi.primarySelectedFile, isInspectorOpen], ([file, open]) => {
+		if (detailsDebounce) window.clearTimeout(detailsDebounce);
+		if (!open || !file || actionsApi.selectedCount.value !== 1) return;
+		if (actionsApi.detailsFile.value?.id === file.id) return;
+		detailsDebounce = window.setTimeout(async () => {
+			const targetId = file.id;
+			await actionsApi.openDetails(file);
+			if (actionsApi.primarySelectedFile.value?.id !== targetId) actionsApi.closeDetails();
+		}, 300);
+	});
+
 	const originalRename = actionsApi.renameSelectedFile;
 	const originalDelete = actionsApi.deleteSelectedFile;
 
@@ -207,6 +234,11 @@ export function useFileListView({
 				? (target) => actions.delete(target)
 				: undefined,
 		});
+	}
+
+	async function showSelectedFileDetails() {
+		isInspectorOpen.value = true;
+		await actionsApi.showSelectedFileDetails();
 	}
 
 	function handleGlobalPointer() {
@@ -228,6 +260,7 @@ export function useFileListView({
 
 	onBeforeUnmount(() => {
 		if (refreshTimer) window.clearInterval(refreshTimer);
+		if (detailsDebounce) window.clearTimeout(detailsDebounce);
 		window.removeEventListener('click', handleGlobalPointer);
 		window.removeEventListener('scroll', handleGlobalPointer, true);
 	});
@@ -266,6 +299,9 @@ export function useFileListView({
 		...actionsApi,
 		renameSelectedFile,
 		deleteSelectedFile,
+		showSelectedFileDetails,
+		isInspectorOpen,
+		toggleInspector,
 		actionInProgress: actionProgress.isActionInProgress,
 		actionLabel: actionProgress.actionLabel,
 	};

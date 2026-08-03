@@ -447,5 +447,13 @@
 		"previous": "Previous file",
 		"next": "Next file",
 		"zoomHint": "Click to zoom, scroll to adjust"
+	},
+	"inspector": {
+		"title": "Details",
+		"toggle": "Toggle the details panel",
+		"emptyTitle": "Nothing selected",
+		"emptyDescription": "Select an item to see its details.",
+		"itemsSelected": "{count} items selected",
+		"totalSize": "Total size"
 	}
 }

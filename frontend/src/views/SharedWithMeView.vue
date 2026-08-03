@@ -6,11 +6,9 @@ import { IconChevronRight, IconFolder } from '@tabler/icons-vue';
 import DriveShell from '../components/DriveShell.vue';
 import FloatingProgressToast from '../components/FloatingProgressToast.vue';
 import FileListSurface from '../components/FileListSurface.vue';
-import FileDetailsModal from '../components/FileDetailsModal.vue';
 import { useFileListView } from '../composables/useFileListView';
 import { getPreviewType } from '../composables/useFileType.js';
 import { useAutoRefresh } from '../composables/useAutoRefresh.js';
-import { providerLabel } from '../composables/useFormatFile.js';
 import { useRecencyGroups } from '../composables/useRecencyGroups.js';
 import { useUploadQueueStore } from '../stores/uploadQueue';
 import { api } from '../services/api';
@@ -41,9 +39,6 @@ const {
 	clearSelection,
 	canPreview,
 	openPreview,
-	detailsFile,
-	isDetailsOpen,
-	closeDetails,
 } = view;
 
 const breadcrumbItems = computed(() => [
@@ -134,8 +129,6 @@ useAutoRefresh(refreshShared, { intervalMs: 30000 });
 				</button>
 			</template>
 		</FileListSurface>
-
-		<FileDetailsModal :file="detailsFile" :is-open="isDetailsOpen" :provider-label-fn="providerLabel" @close="closeDetails" />
 
 		<FloatingProgressToast :uploads="uploads" :total-progress="totalProgress" @close="uploadQueueStore.clearOperations" @close-item="uploadQueueStore.closeOperation" />
 	</DriveShell>

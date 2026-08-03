@@ -447,5 +447,13 @@
 		"previous": "File sebelumnya",
 		"next": "File berikutnya",
 		"zoomHint": "Klik untuk zoom, gulir untuk menyesuaikan"
+	},
+	"inspector": {
+		"title": "Detail",
+		"toggle": "Tampilkan atau sembunyikan panel detail",
+		"emptyTitle": "Belum ada yang dipilih",
+		"emptyDescription": "Pilih item untuk melihat detailnya.",
+		"itemsSelected": "{count} item dipilih",
+		"totalSize": "Ukuran total"
 	}
 }

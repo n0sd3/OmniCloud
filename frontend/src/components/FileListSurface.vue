@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { IconLayoutSidebarRight, IconLayoutSidebarRightFilled } from '@tabler/icons-vue';
 import FileListFilterBar from './FileListFilterBar.vue';
 import FileListSelectionBar from './FileListSelectionBar.vue';
 import FileListViewModeToggle from './FileListViewModeToggle.vue';
@@ -9,6 +10,7 @@ import FileListRow from './FileListRow.vue';
 import FileListGridCard from './FileListGridCard.vue';
 import FileListContextMenu from './FileListContextMenu.vue';
 import FilePreviewModal from './FilePreviewModal.vue';
+import FileInspector from './FileInspector.vue';
 import LoadingState from './LoadingState.vue';
 import { useIncrementalRender } from '../composables/useIncrementalRender';
 
@@ -51,6 +53,7 @@ const {
 	clearFilter,
 	sortedFiles,
 	errorMessage,
+	selectedFiles,
 	selectedCount,
 	primarySelectedFile,
 	isSelected,
@@ -87,6 +90,9 @@ const {
 	showSelectedFileDetails,
 	actionInProgress,
 	actionLabel,
+	detailsFile,
+	isInspectorOpen,
+	toggleInspector,
 } = props.view;
 
 const { renderCount, visibleItems: renderedFiles, handleScroll: handleListScroll } = useIncrementalRender(sortedFiles, {
@@ -115,7 +121,12 @@ defineExpose({ renderCount });
 
 		<div class="mb-2 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
 			<slot name="header" />
-			<FileListViewModeToggle v-model="isGridView" />
+			<div class="flex items-center gap-2">
+				<FileListViewModeToggle v-model="isGridView" />
+				<button type="button" class="grid size-10 place-items-center rounded-full text-[#5f6368] transition hover:bg-black/5 dark:text-slate-400 dark:hover:bg-white/10" :title="t('inspector.toggle')" :aria-pressed="isInspectorOpen" @click.stop="toggleInspector">
+					<component :is="isInspectorOpen ? IconLayoutSidebarRightFilled : IconLayoutSidebarRight" :size="18" :stroke="isInspectorOpen ? 0 : 2" />
+				</button>
+			</div>
 		</div>
 
 		<div class="mb-3 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -129,46 +140,52 @@ defineExpose({ renderCount });
 
 		<p v-if="errorMessage" class="mb-4 rounded-2xl bg-[#fce8e6] px-4 py-3 text-sm text-[#c5221f] dark:bg-red-950/40 dark:text-red-300">{{ errorMessage }}</p>
 
-		<div v-if="!isGridView" class="relative flex flex-col" :class="fillHeight ? 'flex-1' : ''">
-			<div class="custom-scrollbar flex flex-col overflow-x-auto rounded-2xl border border-[#e0e3e7] bg-white dark:border-slate-700 dark:bg-slate-800" :class="fillHeight ? 'flex-1' : ''">
-				<div class="flex min-w-[760px] flex-col" :class="fillHeight ? 'flex-1' : ''">
-					<div class="custom-scrollbar overflow-y-auto overflow-x-hidden" :class="fillHeight ? 'min-h-0 flex-1' : listMaxHeightClass" @scroll="handleListScroll">
-						<FileListHeader :sortable="sortable" :sort-by="sortBy" :sort-direction="sortDirection" @sort="setSort" />
+		<div class="grid gap-4" :class="isInspectorOpen ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : 'grid-cols-1'">
+			<div class="min-w-0">
+				<div v-if="!isGridView" class="relative flex flex-col" :class="fillHeight ? 'flex-1' : ''">
+					<div class="custom-scrollbar flex flex-col overflow-x-auto rounded-2xl border border-[#e0e3e7] bg-white dark:border-slate-700 dark:bg-slate-800" :class="fillHeight ? 'flex-1' : ''">
+						<div class="flex min-w-[760px] flex-col" :class="fillHeight ? 'flex-1' : ''">
+							<div class="custom-scrollbar overflow-y-auto overflow-x-hidden" :class="fillHeight ? 'min-h-0 flex-1' : listMaxHeightClass" @scroll="handleListScroll">
+								<FileListHeader :sortable="sortable" :sort-by="sortBy" :sort-direction="sortDirection" @sort="setSort" />
 
+								<template v-if="renderedGroups">
+									<template v-for="group in renderedGroups" :key="group.key">
+										<div class="sticky top-11 z-[1] bg-[#f8fafd] px-[18px] py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5f6368] dark:bg-slate-900 dark:text-slate-400">{{ group.label }}</div>
+										<FileListRow v-for="item in group.items" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
+									</template>
+								</template>
+								<template v-else>
+									<FileListRow v-for="item in renderedFiles" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
+								</template>
+
+								<div v-if="isEmpty" class="p-[18px] text-[#5f6368] dark:text-slate-400">{{ emptyMessage }}</div>
+								<div v-if="loading" class="p-[18px]"><LoadingState /></div>
+							</div>
+						</div>
+					</div>
+					<LoadingState v-if="actionInProgress" variant="overlay" :message="actionLabel || t('drive.processing')" />
+				</div>
+
+				<div v-else class="relative">
+					<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
 						<template v-if="renderedGroups">
 							<template v-for="group in renderedGroups" :key="group.key">
-								<div class="sticky top-11 z-[1] bg-[#f8fafd] px-[18px] py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5f6368] dark:bg-slate-900 dark:text-slate-400">{{ group.label }}</div>
-								<FileListRow v-for="item in group.items" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
+								<div class="col-span-full rounded-2xl bg-[#f8fafd] px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5f6368] dark:bg-slate-900 dark:text-slate-400">{{ group.label }}</div>
+								<FileListGridCard v-for="item in group.items" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
 							</template>
 						</template>
 						<template v-else>
-							<FileListRow v-for="item in renderedFiles" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
+							<FileListGridCard v-for="item in renderedFiles" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
 						</template>
 
-						<div v-if="isEmpty" class="p-[18px] text-[#5f6368] dark:text-slate-400">{{ emptyMessage }}</div>
-						<div v-if="loading" class="p-[18px]"><LoadingState /></div>
+						<div v-if="isEmpty" class="col-span-full rounded-2xl border border-dashed border-[#dadce0] bg-white px-5 py-8 text-center text-[#5f6368] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">{{ emptyMessage }}</div>
+						<div v-if="loading" class="col-span-full rounded-2xl border border-dashed border-[#dadce0] bg-white px-5 py-8 text-center text-[#5f6368] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"><LoadingState /></div>
 					</div>
+					<LoadingState v-if="actionInProgress" variant="overlay" :message="actionLabel || t('drive.processing')" />
 				</div>
 			</div>
-			<LoadingState v-if="actionInProgress" variant="overlay" :message="actionLabel || t('drive.processing')" />
-		</div>
-
-		<div v-else class="relative">
-			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-				<template v-if="renderedGroups">
-					<template v-for="group in renderedGroups" :key="group.key">
-						<div class="col-span-full rounded-2xl bg-[#f8fafd] px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5f6368] dark:bg-slate-900 dark:text-slate-400">{{ group.label }}</div>
-						<FileListGridCard v-for="item in group.items" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
-					</template>
-				</template>
-				<template v-else>
-					<FileListGridCard v-for="item in renderedFiles" :key="item.id" :item="item" :selected="isSelected(item)" :highlighted="highlightedFileId === item.id" :name-field="nameField" @select="(event) => selectItem(event, item)" @open="emit('open', item)" @contextmenu="(event) => openContextMenu(event, item)" />
-				</template>
-
-				<div v-if="isEmpty" class="col-span-full rounded-2xl border border-dashed border-[#dadce0] bg-white px-5 py-8 text-center text-[#5f6368] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">{{ emptyMessage }}</div>
-				<div v-if="loading" class="col-span-full rounded-2xl border border-dashed border-[#dadce0] bg-white px-5 py-8 text-center text-[#5f6368] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"><LoadingState /></div>
-			</div>
-			<LoadingState v-if="actionInProgress" variant="overlay" :message="actionLabel || t('drive.processing')" />
+			<!-- ponytail: uma coluna abaixo de lg em vez de bottom sheet. Vira sheet se o painel atrapalhar no telefone. -->
+			<FileInspector v-if="isInspectorOpen" :file="primarySelectedFile" :details-file="detailsFile" :selected-files="selectedFiles" :selected-count="selectedCount" :can-download="canDownloadSelection" :can-rename="canRename" :can-delete="allowDelete" :can-toggle-star="canToggleStarSelection" :is-starred="isPrimarySelectedStarred" :can-open-folder="canOpenFolder && canOpenSelection" @close="toggleInspector" @open="emit('open-selected')" @download="downloadSelection" @rename="renameSelectedFile" @delete="deleteSelectedFile" @toggle-star="toggleSelectedFileStar" />
 		</div>
 
 		<FileListContextMenu :context-menu-ref="contextMenuRef" :context-menu="contextMenu" :selected-count="selectedCount" :primary-selected-file="primarySelectedFile" :can-preview="canPreviewSelection" :can-toggle-star="canToggleStarSelection" :is-primary-starred="isPrimarySelectedStarred" :can-download="canDownloadSelection" :can-rename="canRename" :can-delete="allowDelete" :can-show-details="selectedCount === 1" :can-open-folder="canOpenFolder && canOpenSelection" @open-folder="emit('open-selected')" @preview="openPreview" @toggle-star="toggleSelectedFileStar" @download="downloadSelection" @rename="renameSelectedFile" @show-details="showSelectedFileDetails" @delete="deleteSelectedFile" @close="closeContextMenu" />
