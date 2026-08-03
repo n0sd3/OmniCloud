@@ -5,6 +5,7 @@ import { createAdapter } from '../services/adapterRegistry.js';
 import { selectBestAccount } from '../services/spaceAllocator.js';
 import { syncAccount } from '../services/syncService.js';
 import { requireAppUser } from '../middleware/authMiddleware.js';
+import { fileCacheService } from '../services/fileCacheService.js';
 
 const router = Router();
 
@@ -168,6 +169,7 @@ async function listSharedWithMeFiles(userId) {
 
 router.get('/files', async (req, res, next) => {
 	try {
+		const requestedPath = req.query.path || '/';
 		const files = req.query.search
 			? searchFiles(req.user.id, req.query.search, req.query.limit)
 			: req.query.starred === '1'
@@ -176,8 +178,16 @@ router.get('/files', async (req, res, next) => {
 				? listRecentFiles(req.user.id)
 				: req.query.shared === '1'
 					? await listSharedWithMeFiles(req.user.id)
-					: listFilesByPath(req.user.id, req.query.path || '/');
+					: listFilesByPath(req.user.id, requestedPath);
 		res.json({ data: files });
+		if (!req.query.search && req.query.starred !== '1' && req.query.recent !== '1' && req.query.shared !== '1') {
+			fileCacheService.warmFolder({
+				userId: req.user.id,
+				virtualPath: requestedPath,
+				files,
+				adapterFor: (file) => createAdapter(getAccountById(req.user.id, file.cloud_account_id)),
+			});
+		}
 	} catch (error) {
 		next(error);
 	}
@@ -195,8 +205,15 @@ router.get('/files/:id/shared-children', async (req, res, next) => {
 		}
 
 		const items = await context.adapter.listSharedFolderChildren(context.file);
-		return res.json({
-			data: items.map((item) => mapSharedItem(req.user.id, context.account, item)).filter((item) => Boolean(item.remote_file_id)),
+		const files = items.map((item) => mapSharedItem(req.user.id, context.account, item)).filter((item) => Boolean(item.remote_file_id));
+		res.json({
+			data: files,
+		});
+		fileCacheService.warmFolder({
+			userId: req.user.id,
+			virtualPath: context.file.virtual_path || '/',
+			files,
+			adapterFor: () => context.adapter,
 		});
 	} catch (error) {
 		next(error);
@@ -285,7 +302,11 @@ router.get('/files/:id/download', async (req, res, next) => {
 		if (!ensureFileContext(context, res)) {
 			return;
 		}
-		const stream = await context.adapter.getDownloadStream(context.file);
+		const { stream } = await fileCacheService.openFile({
+			userId: req.user.id,
+			file: context.file,
+			adapter: context.adapter,
+		});
 
 		res.setHeader('Content-Disposition', `attachment; filename="${context.file.file_name}"`);
 		res.setHeader('Content-Type', context.file.mime_type || 'application/octet-stream');
@@ -318,7 +339,11 @@ router.get('/files/:id/preview', async (req, res, next) => {
 			return res.status(415).json({ error: 'Preview is not supported for this file type' });
 		}
 
-		const stream = await context.adapter.getDownloadStream(context.file);
+		const { stream } = await fileCacheService.openFile({
+			userId: req.user.id,
+			file: context.file,
+			adapter: context.adapter,
+		});
 
 		res.setHeader('Content-Disposition', `inline; filename="${context.file.file_name}"`);
 		res.setHeader('Content-Type', mimeType);
