@@ -3,6 +3,7 @@ import { BaseCloudAdapter } from './BaseCloudAdapter.js';
 import { guessMimeType } from '../utils/mime.js';
 import { decryptJson } from '../utils/crypto.js';
 import { updateAccountCredentials } from '../services/accountService.js';
+import { megaDownloadService } from '../services/megaDownloadService.js';
 
 function isMegaSessionError(error) {
 	return /invalid or expired user session|ESID|utype/i.test(error?.message || '');
@@ -43,9 +44,10 @@ function hasAncestor(node, target) {
 }
 
 export class MegaAdapter extends BaseCloudAdapter {
-	constructor(account) {
+	constructor(account, downloads = megaDownloadService) {
 		super(account);
 		this.storagePromise = null;
+		this.downloads = downloads;
 	}
 
 	readCredentials() {
@@ -243,13 +245,44 @@ export class MegaAdapter extends BaseCloudAdapter {
 		};
 	}
 
-	async getDownloadStream(fileRecord) {
-		const file = await this.findByRecord(fileRecord);
+	privateTransfer(file, fileRecord) {
 		if (file.directory) {
 			throw new Error('Folders cannot be downloaded directly from MEGA');
 		}
+		if (!file.key || Buffer.from(file.key).length === 0) {
+			throw new Error('MEGA file key is missing');
+		}
+		return file.api.request({ a: 'g', g: 1, ssl: 2, n: file.nodeId }).then((response) => {
+			let downloadUrl;
+			try {
+				downloadUrl = new URL(response?.g);
+			} catch {
+				throw new Error('MEGA returned an invalid signed download URL');
+			}
+			if (downloadUrl.protocol !== 'https:' || downloadUrl.username || downloadUrl.password) {
+				throw new Error('MEGA returned an unsafe signed download URL');
+			}
+			return {
+				downloadUrl: downloadUrl.toString(),
+				fileKey: Buffer.from(file.key).toString('base64url'),
+				fileName: file.name || fileRecord.file_name,
+				size: Number(response.s || file.size || fileRecord.size || 0),
+			};
+		});
+	}
 
-		return file.download({});
+	async resolvePrivateTransfer(fileRecord) {
+		const file = await this.findByRecord(fileRecord);
+		return this.privateTransfer(file, fileRecord);
+	}
+
+	async getDownloadStream(fileRecord, range = {}) {
+		const file = await this.findByRecord(fileRecord);
+		const transfer = await this.privateTransfer(file, fileRecord);
+		return this.downloads.streamResolved(transfer, {
+			range,
+			fallback: () => file.download(range),
+		});
 	}
 
 	async renameFile(fileRecord, nextName) {
