@@ -167,7 +167,9 @@ test('MEGA imports reconcile replayed events and own remote cancellation', async
 			close() { this.closeCalled = true; },
 			fail() {
 				this.onerror?.(new Event('error'));
-				this.onclose?.(new CloseEvent('close'));
+				// Event em vez de CloseEvent: o global so existe a partir do Node 23 e a
+				// imagem de producao e node:22. O onclose do store ignora o argumento.
+				this.onclose?.(new Event('close'));
 			},
 		};
 		sockets.push(socket);

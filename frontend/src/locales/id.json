@@ -427,16 +427,6 @@
 			"manual_desc": "Mengisi akun sesuai urutan yang kamu atur di bawah."
 		}
 	},
-	"fileExplorer": {
-		"unifiedExplorer": "Unified file explorer",
-		"virtualPooling": "Virtual path pooling",
-		"searchInFolder": "Cari di folder ini...",
-		"noFiles": "Tidak ada file di folder ini.",
-		"loading": "Memuat mirror metadata...",
-		"download": "Unduh",
-		"folder": "Folder",
-		"file": "File"
-	},
 	"storagePanel": {
 		"integratedAccounts": "Integrated Accounts",
 		"quotaOverview": "Visual quota overview",

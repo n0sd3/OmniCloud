@@ -427,16 +427,6 @@
 			"manual_desc": "Fills accounts in the exact order you set below."
 		}
 	},
-	"fileExplorer": {
-		"unifiedExplorer": "Unified file explorer",
-		"virtualPooling": "Virtual path pooling",
-		"searchInFolder": "Search in current folder...",
-		"noFiles": "No files in this folder.",
-		"loading": "Loading metadata mirror...",
-		"download": "Download",
-		"folder": "Folder",
-		"file": "File"
-	},
 	"storagePanel": {
 		"integratedAccounts": "Integrated Accounts",
 		"quotaOverview": "Visual quota overview",
