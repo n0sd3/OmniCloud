@@ -1,7 +1,17 @@
 import { defineStore } from 'pinia';
-import { api } from '../services/api';
-import { i18n } from '../i18n';
-import { formatBytes } from '../composables/useFormatFile.js';
+import { api } from '../services/api.js';
+import { i18n } from '../i18n.js';
+
+function formatBytes(value) {
+	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+	let amount = Number(value || 0);
+	let index = 0;
+	while (amount >= 1024 && index < units.length - 1) {
+		amount /= 1024;
+		index += 1;
+	}
+	return `${amount.toFixed(amount >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+}
 
 function normalizePath(path) {
 	if (!path || path === '/') return '/';
@@ -44,6 +54,128 @@ function isCancellable(operation) {
 
 function createBatchId() {
 	return crypto.randomUUID();
+}
+
+function cancelRemoteBestEffort(operation) {
+	try {
+		Promise.resolve(operation?.cancelRemote?.()).catch(() => {});
+	} catch {
+	}
+}
+
+const IMPORT_SOCKET_RETRIES = 3;
+
+function createImportSocketTracker({ uploadId, signal, update, onCompleted }) {
+	let socket = null;
+	let reconnectTimer = null;
+	let reconnectAttempts = 0;
+	let terminal = false;
+
+	function stop() {
+		terminal = true;
+		if (reconnectTimer) window.clearTimeout(reconnectTimer);
+		reconnectTimer = null;
+		if (socket) {
+			socket.onerror = null;
+			socket.onclose = null;
+		}
+	}
+
+	function scheduleReconnect(failedSocket) {
+		if (terminal || signal.aborted || failedSocket !== socket || reconnectTimer) return;
+		if (reconnectAttempts >= IMPORT_SOCKET_RETRIES) {
+			update({ error: i18n.global.t('megaLink.socketError') });
+			return;
+		}
+
+		const delay = 250 * (2 ** reconnectAttempts);
+		reconnectAttempts += 1;
+		reconnectTimer = window.setTimeout(() => {
+			reconnectTimer = null;
+			if (terminal || signal.aborted) return;
+			if (socket) {
+				socket.onerror = null;
+				socket.onclose = null;
+				socket.close();
+			}
+			connect();
+		}, delay);
+	}
+
+	function connect() {
+		if (terminal || signal.aborted) return;
+		const nextSocket = api.createUploadSocket(uploadId);
+		socket = nextSocket;
+		update({ socket: nextSocket, stopTracking: stop });
+
+		nextSocket.onmessage = (event) => {
+			if (terminal || signal.aborted || nextSocket !== socket) return;
+			let message;
+			try {
+				message = JSON.parse(event.data);
+			} catch {
+				return;
+			}
+
+			if (message.type === 'socket:ready') {
+				update({ error: null });
+			}
+			if (message.type === 'upload:started' || message.type === 'upload:progress') {
+				update({
+					progress_percentage: Number(message.percent || 0),
+					status: message.status || 'uploading',
+					error: null,
+				});
+			}
+			if (message.type === 'upload:complete') {
+				stop();
+				update({ progress_percentage: 100, status: 'completed', error: null });
+				nextSocket.close();
+				onCompleted?.(message.file);
+			}
+			if (message.type === 'upload:error') {
+				stop();
+				update({ status: 'failed', error: message.message });
+				nextSocket.close();
+			}
+		};
+		nextSocket.onerror = () => scheduleReconnect(nextSocket);
+		nextSocket.onclose = () => scheduleReconnect(nextSocket);
+	}
+
+	connect();
+	return stop;
+}
+
+async function saveDownloadResponse({ response, queueItem, fileName, size, update }) {
+	const contentLength = Number(response.headers.get('Content-Length')) || size || 0;
+	const reader = response.body?.getReader();
+	const chunks = [];
+	let received = 0;
+
+	if (reader) {
+		while (true) {
+			if (queueItem.abortController.signal.aborted) throw new DOMException('Download cancelled', 'AbortError');
+			const { done, value } = await reader.read();
+			if (done) break;
+			chunks.push(value);
+			received += value.length;
+			const percent = contentLength ? Math.min(99, Math.round((received / contentLength) * 100)) : 50;
+			update({ progress_percentage: percent });
+		}
+	} else {
+		chunks.push(await response.blob());
+	}
+
+	const blob = chunks[0] instanceof Blob ? chunks[0] : new Blob(chunks);
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement('a');
+	link.href = url;
+	link.download = fileName || 'download';
+	document.body.appendChild(link);
+	link.click();
+	link.remove();
+	URL.revokeObjectURL(url);
 }
 
 // ponytail: confirm nativo — troca por modal se o aviso precisar de mais contexto.
@@ -120,7 +252,9 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 				const hasCancellable = batchOperations.some((item) => isCancellable(item));
 				if (hasCancellable) {
 					for (const item of batchOperations) {
+						cancelRemoteBestEffort(item);
 						item.abortController?.abort?.();
+						item.stopTracking?.();
 						item.socket?.close?.();
 						this.updateUpload(item.id, {
 							status: 'cancelled',
@@ -138,7 +272,9 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 			}
 
 			if (isCancellable(operation)) {
+				cancelRemoteBestEffort(operation);
 				operation.abortController?.abort?.();
+				operation.stopTracking?.();
 				operation.socket?.close?.();
 				this.updateUpload(id, {
 					status: 'cancelled',
@@ -155,7 +291,9 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 		},
 		clearOperations() {
 			for (const operation of this.uploads) {
+				if (isCancellable(operation)) cancelRemoteBestEffort(operation);
 				operation.abortController?.abort?.();
+				operation.stopTracking?.();
 				operation.socket?.close?.();
 			}
 			this.uploads = [];
@@ -209,34 +347,13 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 					throw new Error(payload.error || 'Download failed');
 				}
 
-				const contentLength = Number(response.headers.get('Content-Length')) || file.size || 0;
-				const reader = response.body?.getReader();
-				const chunks = [];
-				let received = 0;
-
-				if (reader) {
-					while (true) {
-						if (abortController.signal.aborted) throw new DOMException('Download cancelled', 'AbortError');
-						const { done, value } = await reader.read();
-						if (done) break;
-						chunks.push(value);
-						received += value.length;
-						const percent = contentLength ? Math.min(99, Math.round((received / contentLength) * 100)) : 50;
-						this.updateUpload(queueItem.id, { progress_percentage: percent });
-					}
-				} else {
-					chunks.push(await response.blob());
-				}
-
-				const blob = chunks[0] instanceof Blob ? chunks[0] : new Blob(chunks);
-				const url = URL.createObjectURL(blob);
-				const link = document.createElement('a');
-				link.href = url;
-				link.download = file.display_name || file.file_name || 'download';
-				document.body.appendChild(link);
-				link.click();
-				link.remove();
-				URL.revokeObjectURL(url);
+				await saveDownloadResponse({
+					response,
+					queueItem,
+					fileName: file.display_name || file.file_name,
+					size: file.size,
+					update: (patch) => this.updateUpload(queueItem.id, patch),
+				});
 
 				this.updateUpload(queueItem.id, {
 					progress_percentage: 100,
@@ -257,6 +374,66 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 				});
 				if (batchTotal === 1) throw error;
 			}
+			}
+		},
+		async downloadMegaLink(link) {
+			const { data: metadata } = await api.inspectMegaLink(link);
+			const queueItem = this.registerOperation({
+				type: 'download',
+				name: metadata.file_name,
+				size: metadata.size || 0,
+				status: 'processing',
+			});
+
+			try {
+				api.downloadMegaLink(link);
+				this.updateUpload(queueItem.id, { progress_percentage: 100, status: 'completed' });
+			} catch (error) {
+				this.updateUpload(queueItem.id, { status: 'failed', error: error.message });
+				throw error;
+			}
+
+			return metadata;
+		},
+		async importMegaLink(link, currentPath, onCompleted) {
+			const abortController = new AbortController();
+			const queueItem = this.registerOperation({
+				type: 'upload',
+				name: i18n.global.t('megaLink.pendingName'),
+				status: 'pending',
+				abortController,
+				currentPath,
+			});
+
+			try {
+				const { data } = await api.importMegaLink(link, currentPath, { signal: abortController.signal });
+				if (abortController.signal.aborted) {
+					void api.cancelMegaLinkImport(data.upload_id).catch(() => {});
+					return data;
+				}
+
+				this.updateUpload(queueItem.id, {
+					name: data.file_name,
+					size: data.size || 0,
+					status: 'uploading',
+					remoteUploadId: data.upload_id,
+					cancelRemote: () => api.cancelMegaLinkImport(data.upload_id),
+				});
+
+				createImportSocketTracker({
+					uploadId: data.upload_id,
+					signal: abortController.signal,
+					update: (patch) => this.updateUpload(queueItem.id, patch),
+					onCompleted,
+				});
+
+				return data;
+			} catch (error) {
+				this.updateUpload(queueItem.id, {
+					status: isAbortError(error) || abortController.signal.aborted ? 'cancelled' : 'failed',
+					error: isAbortError(error) || abortController.signal.aborted ? null : error.message,
+				});
+				throw error;
 			}
 		},
 		async uploadFiles(files, currentPath, onCompleted) {

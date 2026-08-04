@@ -282,6 +282,14 @@ MEGA does not require creating a developer OAuth application for OmniCloud.
 
 OmniCloud stores the MEGA session and credentials encrypted in the local SQLite database so it can sync and perform file operations later.
 
+### Downloads and public MEGA links
+
+Docker deployments require `MEGABASTERD_INTERNAL_SECRET` in the root `.env` next to `docker-compose.yml`; generate it with `openssl rand -hex 32`. The API sends MEGA download work to its internal MegaBasterd sidecar first and makes one `megajs` fallback attempt if the sidecar fails before streaming begins. The sidecar never receives a MEGA account password.
+
+The file explorer can inspect, download, or import a canonical HTTPS MEGA file link into the current folder. Folder links are not supported. The API endpoints are authenticated: `POST /api/mega-links/inspect`, `/download`, and `/import`.
+
+The sidecar overlay in `megabasterd-headless/` is pinned to MegaBasterd revision `3b204d226515a6f4ecb6630371e19722077b03fc` and includes its GPL-3.0 source notices. Review GPL source obligations before distributing images, and do not use this integration to bypass MEGA limits or terms of use.
+
 ### Notes
 
 - There is no `MEGA_CLIENT_ID` or `MEGA_CLIENT_SECRET` for this implementation.

@@ -93,6 +93,21 @@
 		"storage": "Storage",
 		"storageUsed": "{used} of {total} used"
 	},
+	"megaLink": {
+		"menuLabel": "MEGA link",
+		"title": "Use a public MEGA link",
+		"description": "Download the file to this device or import it into the folder currently open in My Drive.",
+		"label": "MEGA file link",
+		"placeholder": "https://mega.nz/file/...#...",
+		"required": "Enter a MEGA file link.",
+		"invalid": "Use a valid HTTPS MEGA file link. Folder links are not supported.",
+		"inspecting": "Checking the MEGA file...",
+		"cancel": "Cancel",
+		"download": "Download",
+		"import": "Import into this folder",
+		"pendingName": "MEGA import",
+		"socketError": "MEGA import progress connection failed."
+	},
 	"home": {
 		"subtitle": "Cloud accounts",
 		"heroTitle": "Connect accounts and view all files like a Drive interface.",

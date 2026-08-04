@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
 import { IconChevronRight, IconFolder } from '@tabler/icons-vue';
 import DriveShell from '../components/DriveShell.vue';
+import MegaLinkModal from '../components/MegaLinkModal.vue';
 import FloatingProgressToast from '../components/FloatingProgressToast.vue';
 import FileListSurface from '../components/FileListSurface.vue';
 import { useFileListView } from '../composables/useFileListView';
@@ -28,6 +29,10 @@ const folderInputRef = ref(null);
 const lastObservedSyncAt = ref('');
 const highlightedFileId = ref(null);
 const highlightTimeout = ref(null);
+const isMegaLinkModalOpen = ref(false);
+const isMegaLinkBusy = ref(false);
+const megaLinkError = ref('');
+const megaLinkOpener = ref(null);
 
 const view = useFileListView({
 	getPreviewType,
@@ -163,6 +168,42 @@ async function handleUploads(entries) {
 	}
 }
 
+function openMegaLinkModal(opener) {
+	megaLinkOpener.value = opener;
+	megaLinkError.value = '';
+	isMegaLinkModalOpen.value = true;
+}
+
+function closeMegaLinkModal() {
+	if (!isMegaLinkBusy.value) isMegaLinkModalOpen.value = false;
+}
+
+async function downloadMegaLink(link) {
+	isMegaLinkBusy.value = true;
+	megaLinkError.value = '';
+	try {
+		await uploadQueueStore.downloadMegaLink(link);
+		isMegaLinkModalOpen.value = false;
+	} catch (error) {
+		megaLinkError.value = error.message;
+	} finally {
+		isMegaLinkBusy.value = false;
+	}
+}
+
+async function importMegaLink(link) {
+	isMegaLinkBusy.value = true;
+	megaLinkError.value = '';
+	try {
+		await uploadQueueStore.importMegaLink(link, currentPath.value, refreshCurrentFolder);
+		isMegaLinkModalOpen.value = false;
+	} catch (error) {
+		megaLinkError.value = error.message;
+	} finally {
+		isMegaLinkBusy.value = false;
+	}
+}
+
 function openFilePicker() {
 	resetFileInput(fileInputRef);
 	fileInputRef.value?.click();
@@ -286,7 +327,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-	<DriveShell current-section="drive" @new-folder="createNewFolder" @upload-files="openFilePicker" @upload-folder="openFolderPicker">
+	<MegaLinkModal :open="isMegaLinkModalOpen" :busy="isMegaLinkBusy" :error="megaLinkError" :return-focus="megaLinkOpener" @close="closeMegaLinkModal" @download="downloadMegaLink" @import="importMegaLink" />
+	<DriveShell current-section="drive" show-mega-link-action @new-folder="createNewFolder" @upload-files="openFilePicker" @upload-folder="openFolderPicker" @mega-link="openMegaLinkModal">
 		<div class="contents" @dragenter.prevent="handleDragEnter" @dragover.prevent="handleDragEnter" @dragleave.prevent="handleDragLeave" @drop.prevent="handleDrop">
 			<FileListSurface ref="surfaceRef" :view="view" :loading="isLoading" :empty-message="t('drive.noFiles')" name-field="display_name" fill-height sortable :highlighted-file-id="highlightedFileId" @open="openItemOnDoubleClick" @open-selected="openSelectedItem">
 				<template #header>

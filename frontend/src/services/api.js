@@ -1,5 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787/api';
-const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://localhost:8787/api';
+const WS_BASE_URL = import.meta.env?.VITE_WS_BASE_URL
 	|| API_BASE_URL.replace(/^http/, 'ws').replace(/\/api$/, '/ws/uploads');
 
 async function request(path, options = {}) {
@@ -19,6 +19,7 @@ async function request(path, options = {}) {
 		throw error;
 	}
 
+	if (response.status === 204) return null;
 	return response.json();
 }
 
@@ -258,6 +259,48 @@ export const api = {
 	},
 	createUploadSocket(uploadId) {
 		return new WebSocket(`${WS_BASE_URL}?uploadId=${encodeURIComponent(uploadId)}`);
+	},
+	inspectMegaLink(link, options = {}) {
+		return request('/mega-links/inspect', {
+			method: 'POST',
+			body: JSON.stringify({ link }),
+			signal: options.signal,
+		});
+	},
+	downloadMegaLink(link) {
+		const target = `mega-download-${crypto.randomUUID()}`;
+		const frame = document.createElement('iframe');
+		frame.name = target;
+		frame.hidden = true;
+		frame.setAttribute('aria-hidden', 'true');
+
+		const form = document.createElement('form');
+		form.method = 'POST';
+		form.action = `${API_BASE_URL}/mega-links/download`;
+		form.target = target;
+		form.enctype = 'application/x-www-form-urlencoded';
+		form.hidden = true;
+
+		const input = document.createElement('input');
+		input.type = 'hidden';
+		input.name = 'link';
+		input.value = link;
+		form.appendChild(input);
+		document.body.appendChild(frame);
+		document.body.appendChild(form);
+		form.submit();
+		form.remove();
+		window.setTimeout(() => frame.remove(), 60_000);
+	},
+	importMegaLink(link, virtualPath, options = {}) {
+		return request('/mega-links/import', {
+			method: 'POST',
+			body: JSON.stringify({ link, virtual_path: virtualPath }),
+			signal: options.signal,
+		});
+	},
+	cancelMegaLinkImport(uploadId) {
+		return request(`/mega-links/import/${encodeURIComponent(uploadId)}`, { method: 'DELETE' });
 	},
 	downloadUrl(fileId) {
 		return `${API_BASE_URL}/files/${fileId}/download`;

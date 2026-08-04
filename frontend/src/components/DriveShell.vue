@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
-import { IconCloudDataConnection, IconChevronRight, IconHelp, IconHome, IconLayoutGrid, IconMenu2, IconMoon, IconPlus, IconSearch, IconSettings, IconSun, IconStar, IconTrash, IconUsers, IconX, IconClockHour4, IconCloud, IconFolder, IconCloudFilled, IconClockHour4Filled, IconFolderFilled, IconHomeFilled, IconStarFilled, IconUserFilled, IconLanguage, IconLogout, IconBell } from '@tabler/icons-vue';
+import { IconCloudDataConnection, IconChevronRight, IconHelp, IconHome, IconLayoutGrid, IconLink, IconMenu2, IconMoon, IconPlus, IconSearch, IconSettings, IconSun, IconStar, IconTrash, IconUsers, IconX, IconClockHour4, IconCloud, IconFolder, IconCloudFilled, IconClockHour4Filled, IconFolderFilled, IconHomeFilled, IconStarFilled, IconUserFilled, IconLanguage, IconLogout, IconBell } from '@tabler/icons-vue';
 import { useRouter } from 'vue-router';
 import logoUrl from '../assets/logo.webp';
 import { useAccountManagementStore } from '../stores/accountManagement';
@@ -24,9 +24,10 @@ const fileTreeStore = useFileTreeStore();
 
 const props = defineProps({
 	currentSection: { type: String, required: true },
+	showMegaLinkAction: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['new-folder', 'upload-files', 'upload-folder']);
+const emit = defineEmits(['new-folder', 'upload-files', 'upload-folder', 'mega-link']);
 
 const isCreateMenuOpen = ref(false);
 const isMobileNavOpen = ref(false);
@@ -41,6 +42,8 @@ const isGlobalSearchLoading = ref(false);
 const globalSearchError = ref('');
 const globalSearchDebounce = ref(null);
 const createMenuRef = ref(null);
+const mobileNavToggleRef = ref(null);
+const desktopCreateButtonRef = ref(null);
 const searchRef = ref(null);
 const theme = ref('light');
 const accountStore = useAccountManagementStore();
@@ -174,10 +177,13 @@ function closeUpdatesModal() {
 	isUpdatesModalOpen.value = false;
 }
 
-function runCreateAction(action) {
+function runCreateAction(action, surface = 'desktop') {
+	const opener = action === 'mega-link'
+		? (surface === 'mobile' ? mobileNavToggleRef.value : desktopCreateButtonRef.value)
+		: undefined;
 	isCreateMenuOpen.value = false;
 	isMobileNavOpen.value = false;
-	emit(action);
+	emit(action, opener);
 }
 
 function handleDocumentClick(event) {
@@ -293,7 +299,7 @@ const profileLinks = [
 
 		<header class="grid h-16 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 px-2 sm:gap-4 sm:px-4 lg:grid-cols-[256px_minmax(320px,720px)_1fr] lg:gap-3 lg:px-0 lg:pr-4">
 			<div class="flex min-w-0 items-center gap-2 lg:gap-3 lg:pl-4">
-				<button type="button" class="grid size-10 shrink-0 place-items-center rounded-full text-[#5f6368] transition hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10 lg:hidden" data-mobile-nav-toggle :aria-label="t('header.openNav')" @click.stop="toggleMobileNav">
+				<button ref="mobileNavToggleRef" type="button" class="grid size-10 shrink-0 place-items-center rounded-full text-[#5f6368] transition hover:bg-black/5 dark:text-slate-300 dark:hover:bg-white/10 lg:hidden" data-mobile-nav-toggle :aria-label="t('header.openNav')" @click.stop="toggleMobileNav">
 					<IconMenu2 :size="22" :stroke="2" />
 				</button>
 				<div class="hidden items-center gap-2 lg:flex">
@@ -393,6 +399,10 @@ const profileLinks = [
 								<span>{{ t('sidebar.uploadFolder') }}</span>
 								<IconChevronRight :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
 							</button>
+							<button v-if="showMegaLinkAction" type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('mega-link', 'mobile')">
+								<span>{{ t('megaLink.menuLabel') }}</span>
+								<IconLink :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
+							</button>
 						</div>
 					</div>
 
@@ -427,7 +437,7 @@ const profileLinks = [
 		<div class="grid grid-cols-1 gap-3 lg:grid-cols-[256px_minmax(0,1fr)]">
 			<aside class="hidden pb-6 pl-4 pr-3 pt-2 lg:flex lg:min-h-[calc(100vh-4rem)] lg:flex-col">
 				<div ref="createMenuRef" class="relative inline-block">
-					<button type="button" class="inline-flex h-14 items-center gap-3.5 rounded-2xl bg-white px-[18px] pr-[22px] font-medium text-[#3c4043] shadow-[0_1px_3px_rgba(60,64,67,0.3),0_4px_8px_rgba(60,64,67,0.15)] dark:bg-slate-800 dark:text-slate-100 dark:shadow-[0_10px_30px_rgba(15,23,42,0.45)]" @click.stop="toggleCreateMenu">
+					<button ref="desktopCreateButtonRef" type="button" class="inline-flex h-14 items-center gap-3.5 rounded-2xl bg-white px-[18px] pr-[22px] font-medium text-[#3c4043] shadow-[0_1px_3px_rgba(60,64,67,0.3),0_4px_8px_rgba(60,64,67,0.15)] dark:bg-slate-800 dark:text-slate-100 dark:shadow-[0_10px_30px_rgba(15,23,42,0.45)]" @click.stop="toggleCreateMenu">
 						<IconPlus :size="22" :stroke="2" />
 						<span>{{ t('common.new') }}</span>
 					</button>
@@ -444,6 +454,10 @@ const profileLinks = [
 						<button type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('upload-folder')">
 							<span>{{ t('sidebar.uploadFolder') }}</span>
 							<IconChevronRight :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
+						</button>
+						<button v-if="showMegaLinkAction" type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('mega-link')">
+							<span>{{ t('megaLink.menuLabel') }}</span>
+							<IconLink :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
 						</button>
 					</div>
 				</div>

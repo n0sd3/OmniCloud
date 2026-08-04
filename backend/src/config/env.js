@@ -48,6 +48,10 @@ export const env = {
 	fileCachePath: process.env.FILE_CACHE_PATH || path.resolve(process.cwd(), '.cache/files'),
 	fileCacheWarmTtlMs: Number(process.env.FILE_CACHE_WARM_TTL_MS || 60 * 60 * 1000),
 	fileCacheConcurrency: Math.max(1, Number(process.env.FILE_CACHE_CONCURRENCY || 3)),
+	megaBasterdUrl: process.env.MEGABASTERD_URL || 'http://megabasterd:8788',
+	megaBasterdSecret: String(process.env.MEGABASTERD_INTERNAL_SECRET || '').trim(),
+	megaBasterdTimeoutMs: Math.max(1000, Number(process.env.MEGABASTERD_TIMEOUT_MS || 15000)),
+	megaBasterdFallbackEnabled: process.env.MEGABASTERD_FALLBACK_ENABLED !== 'false',
 };
 
 export function redactEnv() {
@@ -70,5 +74,9 @@ export function redactEnv() {
 		yandexRedirectUri: env.yandexRedirectUri,
 		smbProvisionSecret: env.smbProvisionSecret ? '[configured]' : '[missing]',
 		smbHost: env.smbHost,
+		megaBasterdUrl: env.megaBasterdUrl,
+		megaBasterdSecret: String(env.megaBasterdSecret || '').trim() ? '[configured]' : '[missing]',
+		megaBasterdTimeoutMs: env.megaBasterdTimeoutMs,
+		megaBasterdFallbackEnabled: env.megaBasterdFallbackEnabled,
 	};
 }
