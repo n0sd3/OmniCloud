@@ -33,6 +33,7 @@ public final class HeadlessTransferTest {
                     streamResolved(transfer, resolved, new HeadlessTransfer.ByteRange(7, 15L)));
             assertPublicMetadata(transfer.inspectPublic(" https://mega.nz/file/public-id#public-key "));
             assertQuota(transfer, resolved(url(quotaFixture), fileKey, PLAINTEXT.length));
+            assertApiQuota(fileKey);
             assertCancelled(transfer, resolved);
             assertInvalidRanges();
         } finally {
@@ -54,6 +55,21 @@ public final class HeadlessTransferTest {
         try {
             transfer.streamResolved(transferToQuota, null, new ByteArrayOutputStream());
             throw new AssertionError("expected quota error");
+        } catch (HeadlessTransferException error) {
+            assertEquals(HeadlessTransferException.Code.QUOTA, error.getCode());
+        }
+    }
+
+    private static void assertApiQuota(String fileKey) throws Exception {
+        HeadlessTransfer transfer = new HeadlessTransfer(() -> new MegaAPI() {
+            @Override
+            public String[] getMegaFileMetadata(String link) throws MegaAPIException {
+                throw new MegaAPIException(-17);
+            }
+        });
+        try {
+            transfer.inspectPublic("https://mega.nz/file/public-id#" + fileKey);
+            throw new AssertionError("expected API quota error");
         } catch (HeadlessTransferException error) {
             assertEquals(HeadlessTransferException.Code.QUOTA, error.getCode());
         }

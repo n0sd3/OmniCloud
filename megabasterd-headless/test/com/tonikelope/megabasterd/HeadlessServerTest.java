@@ -1,0 +1,183 @@
+package com.tonikelope.megabasterd;
+
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import javax.crypto.Cipher;
+
+public final class HeadlessServerTest {
+
+    private static final String SECRET = "test-secret";
+    private static final String LINK = "https://mega.nz/file/id#public-key";
+    private static final String QUOTA_LINK = "https://mega.nz/file/quota-id#public-key";
+    private static final String DOWNLOAD_URL = "https://signed.example.test/download";
+    private static final String FILE_KEY = eightWordKey();
+    private static final byte[] CONTENT = "0123456789abcdefghijklmnopqrstuvwxyz".getBytes(StandardCharsets.UTF_8);
+
+    public static void main(String[] args) throws Exception {
+        HttpServer content = contentServer(CONTENT);
+        HttpServer server = HeadlessServer.create(0, SECRET, transfer(url(content)));
+        server.start();
+        try {
+            assertStatus(401, request(server, "GET", "/health", null, null));
+            assertStatus(200, request(server, "GET", "/health", "Bearer " + SECRET, null));
+            assertJson(200, request(server, "POST", "/inspect", "Bearer " + SECRET, "{\"link\":\"" + LINK + "\"}"),
+                    "{\"file_name\":\"fixture.bin\",\"size\":36,\"mime_type\":\"application/octet-stream\"}");
+            assertBody(206, request(server, "POST", "/stream", "Bearer " + SECRET, resolvedRangeJson(url(content))), "789abcdef");
+            assertError(400, request(server, "POST", "/inspect", "Bearer " + SECRET, "{"), "INVALID_INPUT");
+            assertError(429, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    "{\"source\":\"public\",\"link\":\"" + QUOTA_LINK + "\",\"range\":{\"start\":0,\"end\":9}}"), "QUOTA");
+        } finally {
+            server.stop(0);
+            content.stop(0);
+        }
+        System.out.println("HeadlessServerTest OK");
+    }
+
+    private static HeadlessTransfer transfer(String fixtureUrl) {
+        return new HeadlessTransfer(() -> new FakeMegaApi(fixtureUrl));
+    }
+
+    private static String resolvedRangeJson(String downloadUrl) {
+        return "{\"source\":\"resolved\",\"download_url\":\"" + downloadUrl + "\",\"file_key\":\"" + FILE_KEY
+                + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":7,\"end\":15}}";
+    }
+
+    private static Response request(HttpServer server, String method, String path, String authorization, String body) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL("http://127.0.0.1:" + server.getAddress().getPort() + path).openConnection();
+        connection.setRequestMethod(method);
+        connection.setConnectTimeout(2_000);
+        connection.setReadTimeout(2_000);
+        if (authorization != null) {
+            connection.setRequestProperty("Authorization", authorization);
+        }
+        if (body != null) {
+            connection.setDoOutput(true);
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            connection.setFixedLengthStreamingMode(bytes.length);
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(bytes);
+            }
+        }
+        int status = connection.getResponseCode();
+        try (java.io.InputStream input = status >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
+            return new Response(status, input == null ? "" : new String(readAll(input), StandardCharsets.UTF_8));
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static HttpServer contentServer(byte[] plaintext) throws Exception {
+        String key = eightWordKey();
+        byte[] ciphertext = CryptTools.genCrypter("AES", "AES/CTR/NoPadding", CryptTools.initMEGALinkKey(key), CryptTools.initMEGALinkKeyIV(key)).doFinal(plaintext);
+        return server(exchange -> write(exchange, 200, ciphertext));
+    }
+
+    private static HttpServer server(ExchangeHandler handler) throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/", exchange -> handler.handle(exchange));
+        server.start();
+        return server;
+    }
+
+    private static String url(HttpServer server) {
+        return "http://127.0.0.1:" + server.getAddress().getPort();
+    }
+
+    private static void write(HttpExchange exchange, int status, byte[] body) throws IOException {
+        exchange.sendResponseHeaders(status, body.length);
+        try (OutputStream output = exchange.getResponseBody()) {
+            output.write(body);
+        }
+    }
+
+    private static byte[] readAll(java.io.InputStream input) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[256];
+        for (int read; (read = input.read(buffer)) >= 0;) {
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
+    }
+
+    private static String eightWordKey() {
+        byte[] words = new byte[32];
+        for (int index = 0; index < words.length; index++) {
+            words[index] = (byte) (index + 1);
+        }
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(words);
+    }
+
+    private static void assertStatus(int expected, Response response) {
+        if (response.status != expected) {
+            throw new AssertionError("expected status " + expected + " but got " + response.status + ": " + response.body);
+        }
+    }
+
+    private static void assertJson(int expectedStatus, Response response, String expectedBody) {
+        assertStatus(expectedStatus, response);
+        if (!expectedBody.equals(response.body)) {
+            throw new AssertionError("expected " + expectedBody + " but got " + response.body);
+        }
+    }
+
+    private static void assertBody(int expectedStatus, Response response, String expectedBody) {
+        assertStatus(expectedStatus, response);
+        if (!expectedBody.equals(response.body)) {
+            throw new AssertionError("expected " + expectedBody + " but got " + response.body);
+        }
+    }
+
+    private static void assertError(int expectedStatus, Response response, String code) {
+        assertStatus(expectedStatus, response);
+        if (!response.body.contains("\"code\":\"" + code + "\"")) {
+            throw new AssertionError("expected error code " + code + " but got " + response.body);
+        }
+        if (response.body.contains(LINK) || response.body.contains(QUOTA_LINK) || response.body.contains(DOWNLOAD_URL) || response.body.contains(FILE_KEY)) {
+            throw new AssertionError("error leaked request secret: " + response.body);
+        }
+    }
+
+    private interface ExchangeHandler {
+        void handle(HttpExchange exchange) throws IOException;
+    }
+
+    private static final class Response {
+        private final int status;
+        private final String body;
+
+        private Response(int status, String body) {
+            this.status = status;
+            this.body = body;
+        }
+    }
+
+    private static final class FakeMegaApi extends MegaAPI {
+        private final String fixtureUrl;
+
+        private FakeMegaApi(String fixtureUrl) {
+            this.fixtureUrl = fixtureUrl;
+        }
+
+        @Override
+        public String[] getMegaFileMetadata(String link) throws MegaAPIException {
+            if (link.contains("quota-id")) {
+                throw new MegaAPIException(-17);
+            }
+            return new String[]{"fixture.bin", "36", eightWordKey()};
+        }
+
+        @Override
+        public String getMegaFileDownloadUrl(String link) {
+            return fixtureUrl;
+        }
+    }
+}

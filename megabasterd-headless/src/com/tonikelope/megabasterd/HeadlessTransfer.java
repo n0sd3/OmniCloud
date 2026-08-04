@@ -126,9 +126,10 @@ public final class HeadlessTransfer {
     }
 
     private static HeadlessTransferException apiError(MegaAPIException error) {
-        return new HeadlessTransferException(error.getCode() == -9
-                ? HeadlessTransferException.Code.NOT_FOUND
-                : HeadlessTransferException.Code.UPSTREAM, "MEGA API request failed", error);
+        return new HeadlessTransferException(error.getCode() == -17
+                ? HeadlessTransferException.Code.QUOTA
+                : error.getCode() == -9 ? HeadlessTransferException.Code.NOT_FOUND : HeadlessTransferException.Code.UPSTREAM,
+                "MEGA API request failed", error);
     }
 
     private static void skipExactly(InputStream input, int bytes) throws IOException, HeadlessTransferException {
