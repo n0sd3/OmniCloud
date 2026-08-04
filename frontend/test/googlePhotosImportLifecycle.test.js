@@ -32,6 +32,7 @@ function setup({ popup = true, popupNavigationError = false, start = Promise.res
 	const refreshes = [];
 	const cancellations = [];
 	const timers = new Map();
+	const timerDelays = [];
 	const sockets = [];
 	let nextTimer = 1;
 	const windows = [];
@@ -51,9 +52,10 @@ function setup({ popup = true, popupNavigationError = false, start = Promise.res
 			windows.push(next);
 			return next;
 		},
-		setTimeout(callback) {
+		setTimeout(callback, delay) {
 			const id = nextTimer++;
 			timers.set(id, callback);
+			timerDelays.push(delay);
 			return id;
 		},
 		clearTimeout(id) {
@@ -88,6 +90,7 @@ function setup({ popup = true, popupNavigationError = false, start = Promise.res
 		refreshes,
 		cancellations,
 		timers,
+		timerDelays,
 		sockets,
 		windows,
 		runTimer: async () => {
@@ -114,6 +117,14 @@ test('rapid starts keep one pending Picker request and popup', async () => {
 	assert.equal(fixture.updates.filter(({ value }) => value.status === 'starting').length, 1);
 });
 
+test('polling uses the backend interval for initial and subsequent checks', async () => {
+	const fixture = setup({ start: Promise.resolve({ data: importJob({ pollIntervalMs: 1234 }) }) });
+	await fixture.lifecycle.start(ACCOUNT);
+	await fixture.runTimer();
+
+	assert.deepEqual(fixture.timerDelays, [1234, 1234]);
+});
+
 test('dispose during Picker POST cancels a late import without opening resources', async () => {
 	const pending = deferred();
 	const fixture = setup({ start: pending.promise });
@@ -127,6 +138,20 @@ test('dispose during Picker POST cancels a late import without opening resources
 	assert.equal(fixture.sockets.length, 0);
 	assert.equal(fixture.timers.size, 0);
 	assert.equal(fixture.windows[0].uri, undefined);
+});
+
+test('dispose cancels waiting selection but keeps an importing job running', async () => {
+	const waiting = setup();
+	await waiting.lifecycle.start(ACCOUNT);
+	waiting.lifecycle.dispose();
+	assert.deepEqual(waiting.cancellations, ['import-1']);
+
+	const importing = setup({ start: Promise.resolve({ data: importJob({ status: 'importing' }) }) });
+	await importing.lifecycle.start(ACCOUNT);
+	importing.lifecycle.dispose();
+	assert.deepEqual(importing.cancellations, []);
+	assert.equal(importing.sockets[0].closeCalls, 1);
+	assert.equal(importing.windows[0].closed, true);
 });
 
 test('a permanent poll failure becomes a failed terminal state and cleans up', async () => {

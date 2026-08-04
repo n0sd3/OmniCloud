@@ -120,6 +120,7 @@ export function createGooglePhotosImportLifecycle({
 			account,
 			pickerWindow,
 			importId: null,
+			pollIntervalMs: null,
 			photoImport: { status: 'starting', total: 0, completed: 0, failed: 0, errors: [] },
 			timer: null,
 			socket: null,
@@ -131,6 +132,7 @@ export function createGooglePhotosImportLifecycle({
 		try {
 			const { data } = await api.startGooglePhotosImport(account.id);
 			watch.importId = data.id;
+			watch.pollIntervalMs = data.pollIntervalMs;
 			if (disposed || watches.get(account.id) !== watch) {
 				close(watch);
 				api.cancelGooglePhotosImport(data.id).catch(() => {});
@@ -148,7 +150,9 @@ export function createGooglePhotosImportLifecycle({
 
 	function dispose() {
 		disposed = true;
-		for (const accountId of [...watches.keys()]) stop(accountId, { cancel: true });
+		for (const [accountId, watch] of watches) {
+			stop(accountId, { cancel: ['starting', 'waiting_for_selection'].includes(watch.photoImport.status) });
+		}
 	}
 
 	return { start, dispose };
