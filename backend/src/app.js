@@ -5,6 +5,7 @@ import healthRoutes from './routes/healthRoutes.js';
 import accountRoutes from './routes/accountRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
+import megaLinkRoutes from './routes/megaLinkRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import allocationRoutes from './routes/allocationRoutes.js';
 import smbRoutes from './routes/smbRoutes.js';
@@ -50,6 +51,7 @@ export function createApp() {
 	app.use('/api', accountRoutes);
 	app.use('/api', fileRoutes);
 	app.use('/api', uploadRoutes);
+	app.use('/api', megaLinkRoutes);
 	app.use('/api', settingsRoutes);
 	app.use('/api', allocationRoutes);
 	app.use('/api', smbRoutes);

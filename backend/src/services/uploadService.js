@@ -32,6 +32,10 @@ export async function runUpload({ session, stream, fileName, mimeType }) {
 	} catch (error) {
 		console.warn('Local file cache capture failed:', error);
 	}
+	const forwardSourceError = capture.stream === stream
+		? null
+		: (error) => capture.stream.destroy(error);
+	if (forwardSourceError) stream.once('error', forwardSourceError);
 
 	const attemptUpload = async (accountId) => {
 		tried.add(accountId);
@@ -123,6 +127,7 @@ export async function runUpload({ session, stream, fileName, mimeType }) {
 		});
 		throw error;
 	} finally {
+		if (forwardSourceError) stream.off('error', forwardSourceError);
 		removeUploadSession(session.id);
 		try {
 			await capture.discard();
@@ -156,7 +161,7 @@ function pipeUpload({ req, session }) {
 	});
 }
 
-function startUpload(uploadId) {
+export function startUpload(uploadId) {
 	updateUploadSession(uploadId, { status: 'uploading' });
 	emitUploadEvent(uploadId, {
 		type: 'upload:started',
