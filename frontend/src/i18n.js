@@ -1,6 +1,6 @@
 import { createI18n } from 'vue-i18n';
-import en from './locales/en.json';
-import id from './locales/id.json';
+import en from './locales/en.json' with { type: 'json' };
+import id from './locales/id.json' with { type: 'json' };
 
 const SUPPORTED_LOCALES = ['id', 'en'];
 const DEFAULT_LOCALE = 'en';

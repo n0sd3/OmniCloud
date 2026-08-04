@@ -93,6 +93,21 @@
 		"storage": "Penyimpanan",
 		"storageUsed": "{used} dari {total} telah digunakan"
 	},
+	"megaLink": {
+		"menuLabel": "Tautan MEGA",
+		"title": "Gunakan tautan MEGA publik",
+		"description": "Unduh file ke perangkat ini atau impor ke folder yang sedang dibuka di Drive Saya.",
+		"label": "Tautan file MEGA",
+		"placeholder": "https://mega.nz/file/...#...",
+		"required": "Masukkan tautan file MEGA.",
+		"invalid": "Gunakan tautan file MEGA HTTPS yang valid. Tautan folder belum didukung.",
+		"inspecting": "Memeriksa file MEGA...",
+		"cancel": "Batal",
+		"download": "Unduh",
+		"import": "Impor ke folder ini",
+		"pendingName": "Impor MEGA",
+		"socketError": "Koneksi progres impor MEGA gagal."
+	},
 	"home": {
 		"subtitle": "Cloud accounts",
 		"heroTitle": "Hubungkan akun dan lihat seluruh file seperti tampilan Drive.",

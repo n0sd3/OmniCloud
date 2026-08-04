@@ -1,5 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787/api';
-const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://localhost:8787/api';
+const WS_BASE_URL = import.meta.env?.VITE_WS_BASE_URL
 	|| API_BASE_URL.replace(/^http/, 'ws').replace(/\/api$/, '/ws/uploads');
 
 async function request(path, options = {}) {
@@ -19,6 +19,7 @@ async function request(path, options = {}) {
 		throw error;
 	}
 
+	if (response.status === 204) return null;
 	return response.json();
 }
 
@@ -258,6 +259,39 @@ export const api = {
 	},
 	createUploadSocket(uploadId) {
 		return new WebSocket(`${WS_BASE_URL}?uploadId=${encodeURIComponent(uploadId)}`);
+	},
+	inspectMegaLink(link, options = {}) {
+		return request('/mega-links/inspect', {
+			method: 'POST',
+			body: JSON.stringify({ link }),
+			signal: options.signal,
+		});
+	},
+	async downloadMegaLink(link, options = {}) {
+		const response = await fetch(`${API_BASE_URL}/mega-links/download`, {
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ link }),
+			signal: options.signal,
+		});
+		if (!response.ok) {
+			const payload = await response.json().catch(() => ({ error: 'MEGA download failed' }));
+			const error = new Error(payload.error || 'MEGA download failed');
+			error.status = response.status;
+			throw error;
+		}
+		return response;
+	},
+	importMegaLink(link, virtualPath, options = {}) {
+		return request('/mega-links/import', {
+			method: 'POST',
+			body: JSON.stringify({ link, virtual_path: virtualPath }),
+			signal: options.signal,
+		});
+	},
+	cancelMegaLinkImport(uploadId) {
+		return request(`/mega-links/import/${encodeURIComponent(uploadId)}`, { method: 'DELETE' });
 	},
 	downloadUrl(fileId) {
 		return `${API_BASE_URL}/files/${fileId}/download`;

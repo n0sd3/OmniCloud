@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
-import { IconCloudDataConnection, IconChevronRight, IconHelp, IconHome, IconLayoutGrid, IconMenu2, IconMoon, IconPlus, IconSearch, IconSettings, IconSun, IconStar, IconTrash, IconUsers, IconX, IconClockHour4, IconCloud, IconFolder, IconCloudFilled, IconClockHour4Filled, IconFolderFilled, IconHomeFilled, IconStarFilled, IconUserFilled, IconLanguage, IconLogout, IconBell } from '@tabler/icons-vue';
+import { IconCloudDataConnection, IconChevronRight, IconHelp, IconHome, IconLayoutGrid, IconLink, IconMenu2, IconMoon, IconPlus, IconSearch, IconSettings, IconSun, IconStar, IconTrash, IconUsers, IconX, IconClockHour4, IconCloud, IconFolder, IconCloudFilled, IconClockHour4Filled, IconFolderFilled, IconHomeFilled, IconStarFilled, IconUserFilled, IconLanguage, IconLogout, IconBell } from '@tabler/icons-vue';
 import { useRouter } from 'vue-router';
 import logoUrl from '../assets/logo.webp';
 import { useAccountManagementStore } from '../stores/accountManagement';
@@ -26,7 +26,7 @@ const props = defineProps({
 	currentSection: { type: String, required: true },
 });
 
-const emit = defineEmits(['new-folder', 'upload-files', 'upload-folder']);
+const emit = defineEmits(['new-folder', 'upload-files', 'upload-folder', 'mega-link']);
 
 const isCreateMenuOpen = ref(false);
 const isMobileNavOpen = ref(false);
@@ -393,6 +393,10 @@ const profileLinks = [
 								<span>{{ t('sidebar.uploadFolder') }}</span>
 								<IconChevronRight :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
 							</button>
+							<button type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('mega-link')">
+								<span>{{ t('megaLink.menuLabel') }}</span>
+								<IconLink :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
+							</button>
 						</div>
 					</div>
 
@@ -444,6 +448,10 @@ const profileLinks = [
 						<button type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('upload-folder')">
 							<span>{{ t('sidebar.uploadFolder') }}</span>
 							<IconChevronRight :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
+						</button>
+						<button type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('mega-link')">
+							<span>{{ t('megaLink.menuLabel') }}</span>
+							<IconLink :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
 						</button>
 					</div>
 				</div>
