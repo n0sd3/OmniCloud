@@ -106,6 +106,37 @@ test('MegaBasterd client maps quota to a terminal safe error', async (t) => {
 	});
 });
 
+test('MegaBasterd client keeps a recognized terminal code terminal on sidecar 5xx', async (t) => {
+	const fixture = await startServer((_request, response) => {
+		response.writeHead(500, { 'Content-Type': 'application/json' });
+		response.end('{"code":"QUOTA"}');
+	});
+	t.after(() => fixture.server.close());
+	const client = createMegaBasterdClient({ baseUrl: fixture.baseUrl, secret: 'test-secret', timeoutMs: 1000 });
+
+	await assert.rejects(client.inspectPublic('https://mega.nz/file/id#secret'), (error) => {
+		assert.equal(error.code, 'QUOTA');
+		assert.equal(error.fallbackEligible, false);
+		return true;
+	});
+});
+
+test('MegaBasterd client classifies malformed successful JSON as eligible upstream failure', async (t) => {
+	const fixture = await startServer((_request, response) => {
+		response.writeHead(200, { 'Content-Type': 'application/json' });
+		response.end('{"file_name":');
+	});
+	t.after(() => fixture.server.close());
+	const client = createMegaBasterdClient({ baseUrl: fixture.baseUrl, secret: 'test-secret', timeoutMs: 1000 });
+
+	await assert.rejects(client.inspectPublic('https://mega.nz/file/id#secret'), (error) => {
+		assert.ok(error instanceof MegaBasterdError);
+		assert.equal(error.code, 'UPSTREAM');
+		assert.equal(error.fallbackEligible, true);
+		return true;
+	});
+});
+
 test('MegaBasterd client treats sidecar 5xx and timeout as fallback eligible', async (t) => {
 	const fixture = await startServer((_request, response) => {
 		setTimeout(() => {
@@ -152,5 +183,17 @@ test('MegaBasterd client fails closed before fetch when its secret is blank', as
 		assert.equal(error.fallbackEligible, true);
 		return true;
 	});
+	assert.equal(fetchCalls, 0);
+});
+
+test('MegaBasterd client treats a whitespace-only secret as missing', async () => {
+	let fetchCalls = 0;
+	const client = createMegaBasterdClient({
+		baseUrl: 'http://127.0.0.1:1',
+		secret: '   ',
+		fetchImpl: async () => { fetchCalls += 1; },
+	});
+
+	await assert.rejects(client.health(), (error) => error.code === 'UNAVAILABLE');
 	assert.equal(fetchCalls, 0);
 });

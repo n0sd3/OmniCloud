@@ -40,8 +40,10 @@ export function createMegaBasterdClient({
 	timeoutMs = 15000,
 	fetchImpl = globalThis.fetch,
 } = {}) {
+	const normalizedSecret = String(secret || '').trim();
+
 	async function request(path, { method = 'GET', body, signal, stream = false } = {}) {
-		if (!secret) {
+		if (!normalizedSecret) {
 			throw new MegaBasterdError('UNAVAILABLE');
 		}
 
@@ -52,7 +54,7 @@ export function createMegaBasterdClient({
 			response = await fetchImpl(new URL(path, baseUrl), {
 				method,
 				headers: {
-					Authorization: `Bearer ${secret}`,
+					Authorization: `Bearer ${normalizedSecret}`,
 					...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
 				},
 				body: body === undefined ? undefined : JSON.stringify(body),
@@ -74,13 +76,24 @@ export function createMegaBasterdClient({
 			const responseCode = typeof payload?.code === 'string' && SAFE_CODES.has(payload.code)
 				? payload.code
 				: null;
-			const code = response.status >= 500 ? responseCode || 'UPSTREAM' : responseCode || 'UPSTREAM';
-			throw new MegaBasterdError(code, undefined, {
-				fallbackEligible: response.status >= 500 || FALLBACK_CODES.has(code),
-			});
+			const code = responseCode || ({
+				400: 'INVALID_INPUT',
+				401: 'UNAUTHORIZED',
+				404: 'NOT_FOUND',
+				429: 'QUOTA',
+			}[response.status] || 'UPSTREAM');
+			throw new MegaBasterdError(code);
 		}
 
-		if (!stream) return response.json();
+		if (!stream) {
+			try {
+				return await response.json();
+			} catch {
+				if (signal?.aborted) throw new MegaBasterdError('CANCELLED');
+				if (timeoutSignal.aborted) throw new MegaBasterdError('TIMEOUT');
+				throw new MegaBasterdError('UPSTREAM');
+			}
+		}
 		if (!response.body) throw new MegaBasterdError('UPSTREAM');
 		return Readable.fromWeb(response.body);
 	}

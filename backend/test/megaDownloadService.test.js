@@ -189,3 +189,13 @@ test('MegaBasterd environment exposes only safe configuration status', () => {
 		},
 	);
 });
+
+test('MegaBasterd environment redaction treats whitespace-only secret as missing', () => {
+	const previous = env.megaBasterdSecret;
+	try {
+		env.megaBasterdSecret = '   ';
+		assert.equal(redactEnv().megaBasterdSecret, '[missing]');
+	} finally {
+		env.megaBasterdSecret = previous;
+	}
+});

@@ -50,6 +50,10 @@ export class MegaAdapter extends BaseCloudAdapter {
 		this.downloads = downloads;
 	}
 
+	getCapabilities() {
+		return { ...super.getCapabilities(), supportsRange: true };
+	}
+
 	readCredentials() {
 		const credentials = decryptJson(this.account.encrypted_credentials);
 		if (!credentials.session && (!credentials.email || !credentials.password)) {

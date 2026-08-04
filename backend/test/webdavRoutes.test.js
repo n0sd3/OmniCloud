@@ -14,12 +14,14 @@ const { createApp } = await import('../src/app.js');
 const { db, LOCAL_USER_ID } = await import('../src/config/database.js');
 const { createLocalFileStore } = await import('../src/services/localFileStore.js');
 const { BaseCloudAdapter } = await import('../src/adapters/BaseCloudAdapter.js');
+const { MegaAdapter } = await import('../src/adapters/MegaAdapter.js');
 const { setSmbCredentials, getSmbCredential } = await import(
 	'../src/services/smbCredentialService.js'
 );
 
 const cacheStore = createLocalFileStore({ rootDir: process.env.FILE_CACHE_PATH });
 const originalGetDownloadStream = BaseCloudAdapter.prototype.getDownloadStream;
+const originalMegaGetDownloadStream = MegaAdapter.prototype.getDownloadStream;
 let adapterBody = 'remote-v1-12';
 let adapterCalls = 0;
 const backgroundDownload = { pending: false, release: null };
@@ -81,6 +83,7 @@ test.before(async () => {
 test.after(async () => {
 	backgroundDownload.release?.();
 	BaseCloudAdapter.prototype.getDownloadStream = originalGetDownloadStream;
+	MegaAdapter.prototype.getDownloadStream = originalMegaGetDownloadStream;
 	server.close();
 	db.close();
 	await fs.rm(taskRoot, { recursive: true, force: true });
@@ -215,6 +218,44 @@ test('GET com Range em adapter sem suporte devolve 200 inteiro', async () => {
 		assert.equal(response.headers.get('content-range'), null);
 	} finally {
 		db.prepare("DELETE FROM file_metadata WHERE id = 'f-no-range'").run();
+	}
+});
+
+test('GET com Range em arquivo MEGA anuncia e entrega somente o intervalo', async () => {
+	db.prepare(`
+		INSERT INTO cloud_accounts (id, user_id, email, provider, encrypted_credentials, total_space, used_space, status)
+		VALUES ('acc-mega-range', ?, 'mega@b.c', 'mega', 'x', 1000, 0, 'active')
+	`).run(LOCAL_USER_ID);
+	db.prepare(`
+		INSERT INTO file_metadata (id, user_id, virtual_path, file_name, is_folder, size, mime_type, cloud_account_id, remote_file_id, remote_modified_time)
+		VALUES ('f-mega-range', ?, '/Fotos/', 'mega-range.txt', 0, 12, 'text/plain', 'acc-mega-range', 'r-mega-range', '2026-08-03T12:00:00.000Z')
+	`).run(LOCAL_USER_ID);
+	const file = db.prepare("SELECT * FROM file_metadata WHERE id = 'f-mega-range'").get();
+	let rangeCalls = 0;
+	MegaAdapter.prototype.getDownloadStream = async function getDownloadStream(_file, range = {}) {
+		if (Number.isFinite(range.start)) {
+			rangeCalls += 1;
+			assert.deepEqual(range, { start: 0, end: 3 });
+			return Readable.from(['remo']);
+		}
+		return Readable.from(['remote-v1-12']);
+	};
+
+	try {
+		const response = await fetch(`${baseUrl}/webdav/Fotos/mega-range.txt`, {
+			headers: { Authorization: auth, Range: 'bytes=0-3' },
+		});
+
+		assert.equal(response.status, 206);
+		assert.equal(response.headers.get('content-range'), 'bytes 0-3/12');
+		assert.equal(response.headers.get('content-length'), '4');
+		assert.equal(await response.text(), 'remo');
+		assert.equal(rangeCalls, 1);
+		await waitForCache(file);
+	} finally {
+		MegaAdapter.prototype.getDownloadStream = originalMegaGetDownloadStream;
+		db.prepare("DELETE FROM file_metadata WHERE id = 'f-mega-range'").run();
+		db.prepare("DELETE FROM cloud_accounts WHERE id = 'acc-mega-range'").run();
 	}
 });
 
