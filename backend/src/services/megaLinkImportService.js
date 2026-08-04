@@ -1,5 +1,6 @@
 import { megaDownloadService } from './megaDownloadService.js';
-import { selectBestAccount } from './spaceAllocator.js';
+import { listFilesByPath } from './fileService.js';
+import { releaseAccountReservation, reserveBestAccount } from './spaceAllocator.js';
 import {
 	createUploadSession,
 	removeUploadSession,
@@ -8,10 +9,28 @@ import {
 import { runUpload, startUpload } from './uploadService.js';
 import { emitUploadEvent } from './websocketHub.js';
 
-function normalizePath(input = '/') {
-	if (!input || input === '/') return '/';
-	const prefixed = input.startsWith('/') ? input : `/${input}`;
-	return prefixed.endsWith('/') ? prefixed : `${prefixed}/`;
+function codedError(code, message) {
+	return Object.assign(new Error(message), { code });
+}
+
+export function validateMegaFileName(input) {
+	const name = String(input || '');
+	if (!name || name === '.' || name === '..' || /[\\/\u0000-\u001f\u007f]/.test(name)) {
+		throw codedError('INVALID_INPUT', 'Invalid MEGA file name');
+	}
+	return name;
+}
+
+export function normalizeMegaDestinationPath(input = '/') {
+	const value = String(input || '/');
+	if (/[\\\u0000-\u001f\u007f]/.test(value)) {
+		throw codedError('INVALID_INPUT', 'Invalid MEGA import destination');
+	}
+	const segments = value.split('/').filter(Boolean);
+	if (segments.some((segment) => segment === '.' || segment === '..')) {
+		throw codedError('INVALID_INPUT', 'Invalid MEGA import destination');
+	}
+	return segments.length ? `/${segments.join('/')}/` : '/';
 }
 
 function abortError() {
@@ -20,7 +39,10 @@ function abortError() {
 
 export function createMegaLinkImportService({
 	downloads = megaDownloadService,
-	selectAccount = selectBestAccount,
+	selectAccount = null,
+	reserveAccount = reserveBestAccount,
+	releaseReservation = releaseAccountReservation,
+	listFiles = listFilesByPath,
 	createSession = createUploadSession,
 	beginUpload = startUpload,
 	upload = runUpload,
@@ -29,18 +51,33 @@ export function createMegaLinkImportService({
 	emitEvent = emitUploadEvent,
 } = {}) {
 	const jobs = new Map();
+	const destinations = new Set();
+
+	function releaseJob(job) {
+		if (job.reservationId) {
+			releaseReservation(job.reservationId);
+			job.reservationId = null;
+		}
+		if (job.destinationKey) {
+			destinations.delete(job.destinationKey);
+			job.destinationKey = null;
+		}
+	}
 
 	function failBeforeUpload(job, message) {
 		if (job.cleaned) return;
 		job.cleaned = true;
 		updateSession(job.session.id, { status: 'failed' });
-		emitEvent(job.session.id, {
-			type: 'upload:error',
-			uploadId: job.session.id,
-			status: 'failed',
-			message,
-		});
-		removeSession(job.session.id);
+		try {
+			emitEvent(job.session.id, {
+				type: 'upload:error',
+				uploadId: job.session.id,
+				status: 'failed',
+				message,
+			});
+		} finally {
+			removeSession(job.session.id);
+		}
 	}
 
 	async function run(job, link, metadata) {
@@ -61,8 +98,14 @@ export function createMegaLinkImportService({
 				mimeType: metadata.mime_type,
 			});
 		} catch {
+			job.controller.abort();
+			if (job.stream && !job.stream.destroyed) {
+				job.stream.once('error', () => {});
+				job.stream.destroy(abortError());
+			}
 			if (!job.uploadStarted) failBeforeUpload(job, 'MEGA import failed');
 		} finally {
+			releaseJob(job);
 			jobs.delete(job.session.id);
 		}
 	}
@@ -70,17 +113,40 @@ export function createMegaLinkImportService({
 	return {
 		async start(userId, { link, virtualPath = '/' }) {
 			const metadata = await downloads.inspectPublic(link);
-			const allocation = selectAccount(userId, metadata.size);
-			const session = createSession({
-				user_id: userId,
-				file_name: metadata.file_name,
-				size: metadata.size,
-				mime_type: metadata.mime_type,
-				virtual_path: normalizePath(virtualPath),
-				remote_parent_id: null,
-				cloud_account_id: allocation.selected.id,
-				fallback_chain: allocation.fallbackChain.map(({ id }) => id),
-			});
+			const fileName = validateMegaFileName(metadata.file_name);
+			const destination = normalizeMegaDestinationPath(virtualPath);
+			const destinationKey = JSON.stringify([userId, destination, fileName]);
+			if (destinations.has(destinationKey)
+				|| listFiles(userId, destination).some((file) => file.file_name === fileName)) {
+				throw codedError('CONFLICT', 'A file with this name already exists');
+			}
+			destinations.add(destinationKey);
+			let allocation;
+			try {
+				allocation = selectAccount
+					? selectAccount(userId, metadata.size)
+					: reserveAccount(userId, metadata.size, { excludeProviders: ['pcloud'] });
+			} catch (error) {
+				destinations.delete(destinationKey);
+				throw error;
+			}
+			let session;
+			try {
+				session = createSession({
+					user_id: userId,
+					file_name: fileName,
+					size: metadata.size,
+					mime_type: metadata.mime_type,
+					virtual_path: destination,
+					remote_parent_id: null,
+					cloud_account_id: allocation.selected.id,
+					fallback_chain: allocation.fallbackChain.map(({ id }) => id),
+				});
+			} catch (error) {
+				destinations.delete(destinationKey);
+				if (allocation.reservationId) releaseReservation(allocation.reservationId);
+				throw error;
+			}
 			const job = {
 				userId,
 				session,
@@ -88,11 +154,23 @@ export function createMegaLinkImportService({
 				stream: null,
 				uploadStarted: false,
 				cleaned: false,
+				reservationId: allocation.reservationId || null,
+				destinationKey,
 			};
 			jobs.set(session.id, job);
-			beginUpload(session.id);
+			try {
+				beginUpload(session.id);
+			} catch (error) {
+				jobs.delete(session.id);
+				try {
+					failBeforeUpload(job, 'MEGA import failed');
+				} finally {
+					releaseJob(job);
+				}
+				throw error;
+			}
 			void run(job, link, metadata);
-			return { upload_id: session.id, file_name: metadata.file_name, size: metadata.size };
+			return { upload_id: session.id, file_name: fileName, size: metadata.size };
 		},
 
 		async cancel(userId, uploadId) {
@@ -102,6 +180,7 @@ export function createMegaLinkImportService({
 			job.controller.abort();
 			if (job.stream) job.stream.destroy(abortError());
 			if (!job.uploadStarted) failBeforeUpload(job, 'MEGA import cancelled');
+			releaseJob(job);
 			return true;
 		},
 	};

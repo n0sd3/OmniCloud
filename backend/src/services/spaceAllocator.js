@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
 	getAllocationConfig,
 	getOrderedActiveAccounts,
@@ -7,13 +8,21 @@ import {
 	setSwrrState,
 } from './allocationService.js';
 
+const reservations = new Map();
+const reservedByAccount = new Map();
+
+function codedError(code, message) {
+	return Object.assign(new Error(message), { code });
+}
+
 function withFreeSpace(account) {
 	const total = Number(account.total_space) || 0;
 	const used = Number(account.used_space) || 0;
+	const reserved = reservedByAccount.get(account.id) || 0;
 	return {
 		...account,
-		freeSpace: Math.max(0, total - used),
-		usedRatio: total > 0 ? used / total : 1,
+		freeSpace: Math.max(0, total - used - reserved),
+		usedRatio: total > 0 ? (used + reserved) / total : 1,
 	};
 }
 
@@ -94,12 +103,18 @@ function selectManual(accounts, requiredBytes) {
 	return accounts.find((account) => account.freeSpace >= requiredBytes) || accounts[0];
 }
 
-export function selectBestAccount(userId, requiredBytes = 0) {
+export function selectBestAccount(userId, requiredBytes = 0, { excludeProviders = [] } = {}) {
 	const required = Number(requiredBytes) || 0;
 	const { strategy } = getAllocationConfig(userId);
-	const accounts = getOrderedActiveAccounts(userId).map(withFreeSpace);
+	const excluded = new Set(excludeProviders);
+	const accounts = getOrderedActiveAccounts(userId)
+		.filter((account) => !excluded.has(account.provider))
+		.map(withFreeSpace);
 
 	if (!accounts.length) {
+		if (excluded.size) {
+			throw codedError('NO_STREAMING_DESTINATION', 'No streaming-capable cloud account available');
+		}
 		throw new Error('No active cloud account available');
 	}
 
@@ -124,4 +139,29 @@ export function selectBestAccount(userId, requiredBytes = 0) {
 	}
 
 	return buildResult(selected, accounts);
+}
+
+export function reserveBestAccount(userId, requiredBytes = 0, options = {}) {
+	const required = Math.max(0, Number(requiredBytes) || 0);
+	const allocation = selectBestAccount(userId, required, options);
+	if (allocation.selected.freeSpace < required) {
+		throw codedError('NO_SPACE', 'Not enough cloud storage space');
+	}
+	const reservationId = randomUUID();
+	reservations.set(reservationId, { accountId: allocation.selected.id, bytes: required });
+	reservedByAccount.set(
+		allocation.selected.id,
+		(reservedByAccount.get(allocation.selected.id) || 0) + required,
+	);
+	return { ...allocation, reservationId };
+}
+
+export function releaseAccountReservation(reservationId) {
+	const reservation = reservations.get(reservationId);
+	if (!reservation) return false;
+	reservations.delete(reservationId);
+	const remaining = (reservedByAccount.get(reservation.accountId) || 0) - reservation.bytes;
+	if (remaining > 0) reservedByAccount.set(reservation.accountId, remaining);
+	else reservedByAccount.delete(reservation.accountId);
+	return true;
 }

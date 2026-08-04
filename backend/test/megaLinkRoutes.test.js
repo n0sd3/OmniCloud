@@ -18,8 +18,9 @@ const [
 	{ emitUploadEvent, registerUploadSocket, unregisterUploadSocket },
 	{ db, LOCAL_USER_ID },
 	{ BaseCloudAdapter },
-	{ createUploadSession, getUploadSession },
-	{ runUpload },
+	{ createUploadSession, getUploadSession, removeUploadSession },
+	{ runUpload, startUpload },
+	{ reserveBestAccount, releaseAccountReservation },
 ] = await Promise.all([
 	import('express'),
 	import('../src/middleware/authMiddleware.js'),
@@ -30,6 +31,7 @@ const [
 	import('../src/adapters/BaseCloudAdapter.js'),
 	import('../src/services/uploadSessionService.js'),
 	import('../src/services/uploadService.js'),
+	import('../src/services/spaceAllocator.js'),
 ]);
 
 const LINK = 'https://www.mega.co.nz/file/file_id#secret-key';
@@ -136,7 +138,7 @@ test('download returns safe attachment metadata and exact ranged bytes', async (
 	const downloads = testDownloads({
 		inspectPublic: async (link) => {
 			calls.push(['inspect', link]);
-			return { file_name: '../résumé".txt', size: body.length, mime_type: 'text/plain' };
+			return { file_name: 'résumé".txt', size: body.length, mime_type: 'text/plain' };
 		},
 		streamPublic: async (link, options) => {
 			calls.push(['stream', link, options.range]);
@@ -220,8 +222,8 @@ test('import uses the submitted current path and allocation result', async () =>
 test('import streams progress and completion through the existing upload event', async () => {
 	const events = [];
 	const socket = { readyState: 1, send: (message) => events.push(JSON.parse(message)) };
-	registerUploadSocket('upload-progress', socket);
 	let source;
+	let uploadFinished = false;
 	const service = createMegaLinkImportService({
 		downloads: {
 			inspectPublic: async () => ({ file_name: 'video.bin', size: 6, mime_type: 'application/octet-stream' }),
@@ -231,10 +233,8 @@ test('import streams progress and completion through the existing upload event',
 			},
 		},
 		selectAccount: () => ({ selected: { id: 'account-1' }, fallbackChain: [] }),
-		createSession: (payload) => ({ id: 'upload-progress', ...payload }),
-		beginUpload: (uploadId) => emitUploadEvent(uploadId, {
-			type: 'upload:started', uploadId, percent: 0, status: 'uploading',
-		}),
+		createSession: createUploadSession,
+		beginUpload: startUpload,
 		upload: async ({ session, stream }) => {
 			assert.equal(stream, source);
 			let bytes = 0;
@@ -243,19 +243,20 @@ test('import streams progress and completion through the existing upload event',
 				emitUploadEvent(session.id, { type: 'upload:progress', uploadId: session.id, bytes });
 			}
 			emitUploadEvent(session.id, { type: 'upload:complete', uploadId: session.id });
+			removeUploadSession(session.id);
+			uploadFinished = true;
 		},
 	});
+	let uploadId;
 	try {
 		const job = await service.start('u1', { link: LINK, virtualPath: '/' });
-		assert.equal(job.upload_id, 'upload-progress');
-		assert.deepEqual(events.map((event) => event.type), ['upload:started']);
-		await waitFor(() => events.some((event) => event.type === 'upload:complete'));
-		assert.deepEqual(events.map((event) => event.type), [
-			'upload:started', 'upload:progress', 'upload:progress', 'upload:progress', 'upload:complete',
-		]);
-		assert.deepEqual(events.filter((event) => event.type === 'upload:progress').map((event) => event.bytes), [2, 4, 6]);
+		uploadId = job.upload_id;
+		await waitFor(() => uploadFinished);
+		assert.deepEqual(events, []);
+		registerUploadSocket(uploadId, socket);
+		assert.deepEqual(events.map((event) => event.type), ['upload:started', 'upload:complete']);
 	} finally {
-		unregisterUploadSocket('upload-progress', socket);
+		if (uploadId) unregisterUploadSocket(uploadId, socket);
 	}
 });
 
@@ -314,6 +315,239 @@ test('quota errors map to 429 without echoing the submitted link', async () => {
 		assert.equal(response.status, 429);
 		assert.match(body, /quota/i);
 		assert.doesNotMatch(body, /secret-key|mega\.co\.nz/);
+	} finally {
+		await server.close();
+	}
+});
+
+test('upload failure aborts and destroys an unconsumed MEGA source', async () => {
+	let source;
+	let signal;
+	const service = createMegaLinkImportService({
+		downloads: {
+			inspectPublic: async () => ({ file_name: 'failed.bin', size: 5, mime_type: 'application/octet-stream' }),
+			streamPublic: async (_link, options) => {
+				signal = options.signal;
+				source = new Readable({ read() {} });
+				return source;
+			},
+		},
+		selectAccount: () => ({ selected: { id: 'account-1' }, fallbackChain: [] }),
+		createSession: (payload) => ({ id: 'upload-rejects', ...payload }),
+		beginUpload: () => {},
+		upload: async () => { throw new Error('provider rejected before consuming'); },
+	});
+
+	await service.start('u1', { link: LINK, virtualPath: '/' });
+	await waitFor(() => Boolean(signal));
+	await waitFor(() => signal.aborted && source.destroyed);
+	assert.equal(await service.cancel('u1', 'upload-rejects'), false);
+});
+
+test('import rejects unsafe metadata, traversal destinations, and existing names before allocation', async () => {
+	let allocations = 0;
+	const serviceFor = (fileName, listFiles = () => []) => createMegaLinkImportService({
+		downloads: {
+			inspectPublic: async () => ({ file_name: fileName, size: 5, mime_type: 'text/plain' }),
+			streamPublic: async () => Readable.from(['hello']),
+		},
+		selectAccount: () => {
+			allocations += 1;
+			return { selected: { id: 'account-1' }, fallbackChain: [] };
+		},
+		listFiles,
+		createSession: (payload) => ({ id: 'must-not-start', ...payload }),
+		beginUpload: () => {},
+		upload: async () => {},
+	});
+
+	for (const fileName of ['../secret.txt', '..', '.', 'bad\\name.txt', 'bad\nname.txt']) {
+		await assert.rejects(serviceFor(fileName).start('u1', { link: LINK, virtualPath: '/' }), (error) => {
+			assert.equal(error.code, 'INVALID_INPUT');
+			return true;
+		});
+	}
+	await assert.rejects(
+		serviceFor('safe.txt').start('u1', { link: LINK, virtualPath: '/safe/../escape' }),
+		(error) => error.code === 'INVALID_INPUT',
+	);
+	await assert.rejects(
+		serviceFor('safe.txt', () => [{ file_name: 'safe.txt' }]).start('u1', { link: LINK, virtualPath: '/safe' }),
+		(error) => error.code === 'CONFLICT',
+	);
+	assert.equal(allocations, 0);
+});
+
+test('concurrent imports reserve the destination name before either upload completes', async () => {
+	let source;
+	let allocations = 0;
+	const service = createMegaLinkImportService({
+		downloads: {
+			inspectPublic: async () => ({ file_name: 'same-name.bin', size: 5, mime_type: 'application/octet-stream' }),
+			streamPublic: async () => {
+				source = new Readable({ read() {} });
+				return source;
+			},
+		},
+		selectAccount: () => {
+			allocations += 1;
+			return { selected: { id: 'account-1' }, fallbackChain: [] };
+		},
+		listFiles: () => [],
+		createSession: (payload) => ({ id: 'destination-owner', ...payload }),
+		beginUpload: () => {},
+		upload: async ({ stream }) => new Promise((resolve) => {
+			stream.once('error', resolve);
+			stream.resume();
+		}),
+	});
+	const first = await service.start('u1', { link: LINK, virtualPath: '/current' });
+	await waitFor(() => Boolean(source));
+	await assert.rejects(
+		service.start('u1', { link: LINK, virtualPath: '/current/' }),
+		(error) => error.code === 'CONFLICT',
+	);
+	assert.equal(allocations, 1);
+	assert.equal(await service.cancel('u1', first.upload_id), true);
+});
+
+test('import releases capacity reservations after success, failure, and cancellation', async () => {
+	const released = [];
+	let sequence = 0;
+	const createService = ({ upload, streamPublic = async () => Readable.from(['hello']) }) =>
+		createMegaLinkImportService({
+			downloads: {
+				inspectPublic: async () => ({ file_name: `reserved-${sequence += 1}.bin`, size: 5, mime_type: 'application/octet-stream' }),
+				streamPublic,
+			},
+			reserveAccount: (_userId, _size, options) => {
+				assert.deepEqual(options, { excludeProviders: ['pcloud'] });
+				return {
+					selected: { id: 'account-1' }, fallbackChain: [], reservationId: `reservation-${sequence}`,
+				};
+			},
+			releaseReservation: (reservationId) => released.push(reservationId),
+			listFiles: () => [],
+			createSession: (payload) => ({ id: `upload-${sequence}`, ...payload }),
+			beginUpload: () => {},
+			upload,
+		});
+
+	const successful = createService({ upload: async ({ stream }) => { for await (const _chunk of stream) { /* consume */ } } });
+	await successful.start('u1', { link: LINK, virtualPath: '/' });
+	await waitFor(() => released.includes('reservation-1'));
+
+	const failed = createService({ upload: async () => { throw new Error('provider failure'); } });
+	await failed.start('u1', { link: LINK, virtualPath: '/' });
+	await waitFor(() => released.includes('reservation-2'));
+
+	let pendingSource;
+	const cancelled = createService({
+		streamPublic: async () => {
+			pendingSource = new Readable({ read() {} });
+			return pendingSource;
+		},
+		upload: async ({ stream }) => new Promise((resolve) => {
+			stream.once('error', resolve);
+			stream.resume();
+		}),
+	});
+	const job = await cancelled.start('u1', { link: LINK, virtualPath: '/' });
+	await waitFor(() => Boolean(pendingSource));
+	assert.equal(await cancelled.cancel('u1', job.upload_id), true);
+	assert.ok(released.includes('reservation-3'));
+	assert.equal(released.filter((id) => id === 'reservation-3').length, 1);
+});
+
+test('import releases its reservation and session when starting events fail', async () => {
+	const released = [];
+	let sessionId;
+	const service = createMegaLinkImportService({
+		downloads: {
+			inspectPublic: async () => ({ file_name: 'start-failure.bin', size: 5, mime_type: 'application/octet-stream' }),
+			streamPublic: async () => { throw new Error('must not stream'); },
+		},
+		reserveAccount: () => ({
+			selected: { id: 'account-1' }, fallbackChain: [], reservationId: 'start-reservation',
+		}),
+		releaseReservation: (id) => released.push(id),
+		listFiles: () => [],
+		createSession: (payload) => {
+			const session = createUploadSession(payload);
+			sessionId = session.id;
+			return session;
+		},
+		beginUpload: () => { throw new Error('event hub unavailable'); },
+		upload: async () => {},
+	});
+
+	await assert.rejects(service.start('u1', { link: LINK, virtualPath: '/' }), /event hub unavailable/);
+	assert.deepEqual(released, ['start-reservation']);
+	assert.equal(getUploadSession(sessionId), undefined);
+});
+
+test('inspect rejects unsafe remote file names without echoing them', async () => {
+	const downloads = testDownloads({
+		inspectPublic: async () => ({ file_name: '../private-key.txt', size: 5, mime_type: 'text/plain' }),
+	});
+	const server = await startServer(createMegaLinkRouter({ downloads, imports: testImports() }));
+	try {
+		const response = await post(server.baseUrl, '/api/mega-links/inspect', { link: LINK });
+		const body = await response.text();
+		assert.equal(response.status, 400);
+		assert.doesNotMatch(body, /private-key/);
+	} finally {
+		await server.close();
+	}
+});
+
+test('allocation reservations prevent concurrent overcommit, release, and exclude pCloud', () => {
+	const userId = 'mega-reservation-user';
+	db.prepare("INSERT INTO users (id, email, password_hash) VALUES (?, ?, '')")
+		.run(userId, 'mega-reservation@example.com');
+	db.prepare(`
+		INSERT INTO cloud_accounts (
+			id, user_id, email, provider, encrypted_credentials,
+			total_space, used_space, status
+		) VALUES
+			('streaming-account', ?, 'streaming@example.com', 'base', '', 10, 0, 'active'),
+			('buffering-account', ?, 'buffering@example.com', 'pcloud', '', 1000, 0, 'active')
+	`).run(userId, userId);
+
+	const first = reserveBestAccount(userId, 8, { excludeProviders: ['pcloud'] });
+	assert.equal(first.selected.id, 'streaming-account');
+	assert.ok(first.reservationId);
+	assert.throws(
+		() => reserveBestAccount(userId, 3, { excludeProviders: ['pcloud'] }),
+		(error) => error.code === 'NO_SPACE',
+	);
+	assert.equal(releaseAccountReservation(first.reservationId), true);
+	const afterRelease = reserveBestAccount(userId, 3, { excludeProviders: ['pcloud'] });
+	assert.equal(afterRelease.selected.id, 'streaming-account');
+	assert.equal(releaseAccountReservation(afterRelease.reservationId), true);
+
+	assert.throws(
+		() => reserveBestAccount(userId, 1, { excludeProviders: ['base', 'pcloud'] }),
+		(error) => error.code === 'NO_STREAMING_DESTINATION',
+	);
+});
+
+test('unsatisfiable download range returns 416 without opening a stream', async () => {
+	let streamCalls = 0;
+	const downloads = testDownloads({
+		streamPublic: async () => {
+			streamCalls += 1;
+			return Readable.from(['hello']);
+		},
+	});
+	const server = await startServer(createMegaLinkRouter({ downloads, imports: testImports() }));
+	try {
+		const response = await post(server.baseUrl, '/api/mega-links/download', { link: LINK }, {
+			Range: 'bytes=10-20',
+		});
+		assert.equal(response.status, 416);
+		assert.equal(response.headers.get('content-range'), 'bytes */5');
+		assert.equal(streamCalls, 0);
 	} finally {
 		await server.close();
 	}

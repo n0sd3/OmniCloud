@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pipeline } from 'node:stream/promises';
 import { requireAppUser } from '../middleware/authMiddleware.js';
 import { megaDownloadService, normalizeMegaFileLink } from '../services/megaDownloadService.js';
-import { megaLinkImportService } from '../services/megaLinkImportService.js';
+import { megaLinkImportService, validateMegaFileName } from '../services/megaLinkImportService.js';
 import { parseRangeHeader } from '../services/webdav.js';
 
 const ERRORS = {
@@ -15,6 +15,9 @@ const ERRORS = {
 	TIMEOUT: [504, 'MEGA download service timed out'],
 	UPSTREAM: [502, 'MEGA download failed'],
 	UNAUTHORIZED: [502, 'MEGA download service authentication failed'],
+	CONFLICT: [409, 'A file with this name already exists'],
+	NO_SPACE: [507, 'Not enough cloud storage space'],
+	NO_STREAMING_DESTINATION: [422, 'No streaming-capable cloud account available'],
 };
 
 function sendError(res, error) {
@@ -46,7 +49,9 @@ export function createMegaLinkRouter({
 	router.post('/mega-links/inspect', async (req, res) => {
 		try {
 			const link = normalizeMegaFileLink(req.body?.link);
-			return res.json({ data: await downloads.inspectPublic(link) });
+			const metadata = await downloads.inspectPublic(link);
+			validateMegaFileName(metadata.file_name);
+			return res.json({ data: metadata });
 		} catch (error) {
 			return sendError(res, error);
 		}
@@ -61,8 +66,15 @@ export function createMegaLinkRouter({
 		try {
 			const link = normalizeMegaFileLink(req.body?.link);
 			const metadata = await downloads.inspectPublic(link, { signal: controller.signal });
+			validateMegaFileName(metadata.file_name);
 			const size = Number(metadata.size || 0);
-			const range = parseRangeHeader(req.headers.range, size);
+			const rangeHeader = String(req.headers.range || '').trim();
+			const range = parseRangeHeader(rangeHeader, size);
+			if (rangeHeader && /^bytes=\d*-\d*$/.test(rangeHeader) && !range) {
+				res.setHeader('Accept-Ranges', 'bytes');
+				res.setHeader('Content-Range', `bytes */${size}`);
+				return res.status(416).end();
+			}
 			const stream = await downloads.streamPublic(link, { range, signal: controller.signal });
 
 			res.setHeader('Accept-Ranges', 'bytes');
