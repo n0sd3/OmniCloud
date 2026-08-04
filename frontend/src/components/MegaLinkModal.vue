@@ -8,6 +8,7 @@ const props = defineProps({
 	open: { type: Boolean, default: false },
 	busy: { type: Boolean, default: false },
 	error: { type: String, default: '' },
+	returnFocus: { type: Object, default: null },
 });
 
 const emit = defineEmits(['close', 'download', 'import']);
@@ -36,6 +37,7 @@ watch(() => props.open, async (open) => {
 	deactivateFocusTrap = activateFocusTrap(dialogRef.value, {
 		initialFocus: inputRef.value,
 		onEscape: close,
+		returnFocus: props.returnFocus,
 	});
 });
 

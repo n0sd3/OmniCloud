@@ -185,6 +185,7 @@ test('download accepts a small native form submission through the same authentic
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/x-www-form-urlencoded',
+				Origin: 'http://localhost:5173',
 				'X-Test-User': 'u1',
 			},
 			body: new URLSearchParams({ link: LINK }),
@@ -196,6 +197,33 @@ test('download accepts a small native form submission through the same authentic
 			['inspect', CANONICAL_LINK],
 			['stream', CANONICAL_LINK],
 		]);
+	} finally {
+		await server.close();
+	}
+});
+
+test('native form download fails closed for untrusted origins before local-mode downloader work', async () => {
+	let calls = 0;
+	const downloads = testDownloads({
+		inspectPublic: async () => { calls += 1; },
+		streamPublic: async () => { calls += 1; },
+	});
+	const server = await startServer(createMegaLinkRouter({ downloads, imports: testImports() }));
+	try {
+		for (const origin of [undefined, 'null', 'http://localhost:5173.evil.test']) {
+			const headers = {
+				'Content-Type': 'application/x-www-form-urlencoded',
+				'X-Test-User': 'u1',
+			};
+			if (origin !== undefined) headers.Origin = origin;
+			const response = await fetch(`${server.baseUrl}/api/mega-links/download`, {
+				method: 'POST',
+				headers,
+				body: new URLSearchParams({ link: LINK }),
+			});
+			assert.equal(response.status, 403, String(origin));
+		}
+		assert.equal(calls, 0);
 	} finally {
 		await server.close();
 	}

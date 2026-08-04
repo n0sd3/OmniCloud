@@ -7,7 +7,7 @@ const FOCUSABLE = [
 	'[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-export function activateFocusTrap(container, { initialFocus, onEscape } = {}) {
+export function activateFocusTrap(container, { initialFocus, onEscape, returnFocus } = {}) {
 	const previousFocus = document.activeElement;
 	const focusable = () => Array.from(container?.querySelectorAll(FOCUSABLE) || [])
 		.filter((element) => !element.disabled);
@@ -45,6 +45,6 @@ export function activateFocusTrap(container, { initialFocus, onEscape } = {}) {
 		if (!active) return;
 		active = false;
 		document.removeEventListener('keydown', onKeydown);
-		previousFocus?.focus?.();
+		(returnFocus || previousFocus)?.focus?.();
 	};
 }

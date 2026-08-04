@@ -251,10 +251,11 @@ test('MEGA imports reconcile replayed events and own remote cancellation', async
 	}
 });
 
-test('focus trap handles Tab, Escape, cleanup, and restores the trigger', () => {
+test('focus trap handles keyboard cleanup and restores an explicit stable opener after a menu disappears', () => {
 	const originalDocument = globalThis.document;
 	const listeners = new Map();
-	const trigger = { focusCalls: 0, focus() { this.focusCalls += 1; fakeDocument.activeElement = this; } };
+	const body = { focusCalls: 0, focus() { this.focusCalls += 1; fakeDocument.activeElement = this; } };
+	const stableOpener = { focusCalls: 0, focus() { this.focusCalls += 1; fakeDocument.activeElement = this; } };
 	const input = { disabled: false, focusCalls: 0, focus() { this.focusCalls += 1; fakeDocument.activeElement = this; } };
 	const button = { disabled: false, focusCalls: 0, focus() { this.focusCalls += 1; fakeDocument.activeElement = this; } };
 	const container = {
@@ -262,7 +263,7 @@ test('focus trap handles Tab, Escape, cleanup, and restores the trigger', () => 
 		querySelectorAll: () => [input, button],
 	};
 	const fakeDocument = {
-		activeElement: trigger,
+		activeElement: body,
 		addEventListener: (type, listener) => listeners.set(type, listener),
 		removeEventListener: (type, listener) => {
 			if (listeners.get(type) === listener) listeners.delete(type);
@@ -272,7 +273,11 @@ test('focus trap handles Tab, Escape, cleanup, and restores the trigger', () => 
 	let escaped = 0;
 
 	try {
-		const deactivate = activateFocusTrap(container, { initialFocus: input, onEscape: () => { escaped += 1; } });
+		const deactivate = activateFocusTrap(container, {
+			initialFocus: input,
+			onEscape: () => { escaped += 1; },
+			returnFocus: stableOpener,
+		});
 		assert.equal(input.focusCalls, 1);
 		fakeDocument.activeElement = button;
 		listeners.get('keydown')({ key: 'Tab', shiftKey: false, preventDefault() {} });
@@ -283,7 +288,8 @@ test('focus trap handles Tab, Escape, cleanup, and restores the trigger', () => 
 		assert.equal(escaped, 1);
 		deactivate();
 		assert.equal(listeners.has('keydown'), false);
-		assert.equal(trigger.focusCalls, 1);
+		assert.equal(stableOpener.focusCalls, 1);
+		assert.equal(body.focusCalls, 0, 'does not restore to body after the clicked menu item vanished');
 	} finally {
 		globalThis.document = originalDocument;
 	}
@@ -313,4 +319,7 @@ test('DriveShell hides the MEGA action unless My Drive explicitly enables it', a
 	assert.match(shell, /showMegaLinkAction:\s*\{\s*type:\s*Boolean,\s*default:\s*false\s*\}/);
 	assert.equal((shell.match(/v-if="showMegaLinkAction"/g) || []).length, 2);
 	assert.match(drive, /show-mega-link-action/);
+	assert.match(shell, /emit\(action, opener\)/);
+	assert.match(drive, /function openMegaLinkModal\(opener\)/);
+	assert.match(drive, /:return-focus="megaLinkOpener"/);
 });

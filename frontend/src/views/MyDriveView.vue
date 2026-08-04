@@ -32,6 +32,7 @@ const highlightTimeout = ref(null);
 const isMegaLinkModalOpen = ref(false);
 const isMegaLinkBusy = ref(false);
 const megaLinkError = ref('');
+const megaLinkOpener = ref(null);
 
 const view = useFileListView({
 	getPreviewType,
@@ -167,7 +168,8 @@ async function handleUploads(entries) {
 	}
 }
 
-function openMegaLinkModal() {
+function openMegaLinkModal(opener) {
+	megaLinkOpener.value = opener;
 	megaLinkError.value = '';
 	isMegaLinkModalOpen.value = true;
 }
@@ -325,7 +327,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-	<MegaLinkModal :open="isMegaLinkModalOpen" :busy="isMegaLinkBusy" :error="megaLinkError" @close="closeMegaLinkModal" @download="downloadMegaLink" @import="importMegaLink" />
+	<MegaLinkModal :open="isMegaLinkModalOpen" :busy="isMegaLinkBusy" :error="megaLinkError" :return-focus="megaLinkOpener" @close="closeMegaLinkModal" @download="downloadMegaLink" @import="importMegaLink" />
 	<DriveShell current-section="drive" show-mega-link-action @new-folder="createNewFolder" @upload-files="openFilePicker" @upload-folder="openFolderPicker" @mega-link="openMegaLinkModal">
 		<div class="contents" @dragenter.prevent="handleDragEnter" @dragover.prevent="handleDragEnter" @dragleave.prevent="handleDragLeave" @drop.prevent="handleDrop">
 			<FileListSurface ref="surfaceRef" :view="view" :loading="isLoading" :empty-message="t('drive.noFiles')" name-field="display_name" fill-height sortable :highlighted-file-id="highlightedFileId" @open="openItemOnDoubleClick" @open-selected="openSelectedItem">

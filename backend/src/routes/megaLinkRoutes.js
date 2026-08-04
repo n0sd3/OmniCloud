@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import { pipeline } from 'node:stream/promises';
+import { env } from '../config/env.js';
 import { requireAppUser } from '../middleware/authMiddleware.js';
 import { megaDownloadService, normalizeMegaFileLink } from '../services/megaDownloadService.js';
 import { megaLinkImportService, validateMegaFileName } from '../services/megaLinkImportService.js';
@@ -26,6 +27,25 @@ const parseNativeDownloadForm = express.urlencoded({
 	parameterLimit: 1,
 	type: 'application/x-www-form-urlencoded',
 });
+
+const trustedNativeDownloadOrigins = new Set(
+	[env.corsOrigin].flatMap((value) => {
+		try {
+			return [new URL(value).origin];
+		} catch {
+			return [];
+		}
+	}),
+);
+
+function requireTrustedNativeDownloadOrigin(req, res, next) {
+	if (!req.is('application/x-www-form-urlencoded')) return next();
+	const origin = req.get('origin');
+	if (!origin || !trustedNativeDownloadOrigins.has(origin)) {
+		return res.status(403).json({ error: 'Untrusted download origin' });
+	}
+	return next();
+}
 
 function sendError(res, error) {
 	const [status, message] = ERRORS[error?.code] || [500, 'MEGA request failed'];
@@ -64,7 +84,7 @@ export function createMegaLinkRouter({
 		}
 	});
 
-	router.post('/mega-links/download', parseNativeDownloadForm, async (req, res) => {
+	router.post('/mega-links/download', requireTrustedNativeDownloadOrigin, parseNativeDownloadForm, async (req, res) => {
 		const controller = new AbortController();
 		const onClose = () => {
 			if (!res.writableFinished) controller.abort();
