@@ -267,21 +267,30 @@ export const api = {
 			signal: options.signal,
 		});
 	},
-	async downloadMegaLink(link, options = {}) {
-		const response = await fetch(`${API_BASE_URL}/mega-links/download`, {
-			method: 'POST',
-			credentials: 'include',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ link }),
-			signal: options.signal,
-		});
-		if (!response.ok) {
-			const payload = await response.json().catch(() => ({ error: 'MEGA download failed' }));
-			const error = new Error(payload.error || 'MEGA download failed');
-			error.status = response.status;
-			throw error;
-		}
-		return response;
+	downloadMegaLink(link) {
+		const target = `mega-download-${crypto.randomUUID()}`;
+		const frame = document.createElement('iframe');
+		frame.name = target;
+		frame.hidden = true;
+		frame.setAttribute('aria-hidden', 'true');
+
+		const form = document.createElement('form');
+		form.method = 'POST';
+		form.action = `${API_BASE_URL}/mega-links/download`;
+		form.target = target;
+		form.enctype = 'application/x-www-form-urlencoded';
+		form.hidden = true;
+
+		const input = document.createElement('input');
+		input.type = 'hidden';
+		input.name = 'link';
+		input.value = link;
+		form.appendChild(input);
+		document.body.appendChild(frame);
+		document.body.appendChild(form);
+		form.submit();
+		form.remove();
+		window.setTimeout(() => frame.remove(), 60_000);
 	},
 	importMegaLink(link, virtualPath, options = {}) {
 		return request('/mega-links/import', {

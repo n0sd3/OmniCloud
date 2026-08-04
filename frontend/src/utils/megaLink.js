@@ -8,7 +8,7 @@ export function looksLikeMegaFileLink(value) {
 		}
 
 		return (/^\/file\/[^/]+$/.test(url.pathname) && url.hash.length > 1)
-			|| /^#![^!]+![^!]+$/.test(url.hash);
+			|| (url.pathname === '/' && /^#![^!]+![^!]+$/.test(url.hash));
 	} catch {
 		return false;
 	}

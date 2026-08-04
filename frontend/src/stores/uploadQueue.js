@@ -63,6 +63,90 @@ function cancelRemoteBestEffort(operation) {
 	}
 }
 
+const IMPORT_SOCKET_RETRIES = 3;
+
+function createImportSocketTracker({ uploadId, signal, update, onCompleted }) {
+	let socket = null;
+	let reconnectTimer = null;
+	let reconnectAttempts = 0;
+	let terminal = false;
+
+	function stop() {
+		terminal = true;
+		if (reconnectTimer) window.clearTimeout(reconnectTimer);
+		reconnectTimer = null;
+		if (socket) {
+			socket.onerror = null;
+			socket.onclose = null;
+		}
+	}
+
+	function scheduleReconnect(failedSocket) {
+		if (terminal || signal.aborted || failedSocket !== socket || reconnectTimer) return;
+		if (reconnectAttempts >= IMPORT_SOCKET_RETRIES) {
+			update({ error: i18n.global.t('megaLink.socketError') });
+			return;
+		}
+
+		const delay = 250 * (2 ** reconnectAttempts);
+		reconnectAttempts += 1;
+		reconnectTimer = window.setTimeout(() => {
+			reconnectTimer = null;
+			if (terminal || signal.aborted) return;
+			if (socket) {
+				socket.onerror = null;
+				socket.onclose = null;
+				socket.close();
+			}
+			connect();
+		}, delay);
+	}
+
+	function connect() {
+		if (terminal || signal.aborted) return;
+		const nextSocket = api.createUploadSocket(uploadId);
+		socket = nextSocket;
+		update({ socket: nextSocket, stopTracking: stop });
+
+		nextSocket.onmessage = (event) => {
+			if (terminal || signal.aborted || nextSocket !== socket) return;
+			let message;
+			try {
+				message = JSON.parse(event.data);
+			} catch {
+				return;
+			}
+
+			if (message.type === 'socket:ready') {
+				update({ error: null });
+			}
+			if (message.type === 'upload:started' || message.type === 'upload:progress') {
+				update({
+					progress_percentage: Number(message.percent || 0),
+					status: message.status || 'uploading',
+					error: null,
+				});
+			}
+			if (message.type === 'upload:complete') {
+				stop();
+				update({ progress_percentage: 100, status: 'completed', error: null });
+				nextSocket.close();
+				onCompleted?.(message.file);
+			}
+			if (message.type === 'upload:error') {
+				stop();
+				update({ status: 'failed', error: message.message });
+				nextSocket.close();
+			}
+		};
+		nextSocket.onerror = () => scheduleReconnect(nextSocket);
+		nextSocket.onclose = () => scheduleReconnect(nextSocket);
+	}
+
+	connect();
+	return stop;
+}
+
 async function saveDownloadResponse({ response, queueItem, fileName, size, update }) {
 	const contentLength = Number(response.headers.get('Content-Length')) || size || 0;
 	const reader = response.body?.getReader();
@@ -170,6 +254,7 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 					for (const item of batchOperations) {
 						cancelRemoteBestEffort(item);
 						item.abortController?.abort?.();
+						item.stopTracking?.();
 						item.socket?.close?.();
 						this.updateUpload(item.id, {
 							status: 'cancelled',
@@ -189,6 +274,7 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 			if (isCancellable(operation)) {
 				cancelRemoteBestEffort(operation);
 				operation.abortController?.abort?.();
+				operation.stopTracking?.();
 				operation.socket?.close?.();
 				this.updateUpload(id, {
 					status: 'cancelled',
@@ -207,6 +293,7 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 			for (const operation of this.uploads) {
 				if (isCancellable(operation)) cancelRemoteBestEffort(operation);
 				operation.abortController?.abort?.();
+				operation.stopTracking?.();
 				operation.socket?.close?.();
 			}
 			this.uploads = [];
@@ -291,40 +378,20 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 		},
 		async downloadMegaLink(link) {
 			const { data: metadata } = await api.inspectMegaLink(link);
-			const abortController = new AbortController();
 			const queueItem = this.registerOperation({
 				type: 'download',
 				name: metadata.file_name,
 				size: metadata.size || 0,
-				status: 'downloading',
-				abortController,
+				status: 'processing',
 			});
 
-			let response;
 			try {
-				response = await api.downloadMegaLink(link, { signal: abortController.signal });
+				api.downloadMegaLink(link);
+				this.updateUpload(queueItem.id, { progress_percentage: 100, status: 'completed' });
 			} catch (error) {
-				this.updateUpload(queueItem.id, {
-					status: isAbortError(error) ? 'cancelled' : 'failed',
-					error: isAbortError(error) ? null : error.message,
-				});
+				this.updateUpload(queueItem.id, { status: 'failed', error: error.message });
 				throw error;
 			}
-
-			void saveDownloadResponse({
-				response,
-				queueItem,
-				fileName: metadata.file_name,
-				size: metadata.size,
-				update: (patch) => this.updateUpload(queueItem.id, patch),
-			}).then(() => {
-				this.updateUpload(queueItem.id, { progress_percentage: 100, status: 'completed' });
-			}).catch((error) => {
-				this.updateUpload(queueItem.id, {
-					status: isAbortError(error) ? 'cancelled' : 'failed',
-					error: isAbortError(error) ? null : error.message,
-				});
-			});
 
 			return metadata;
 		},
@@ -345,47 +412,20 @@ export const useUploadQueueStore = defineStore('uploadQueue', {
 					return data;
 				}
 
-				const socket = api.createUploadSocket(data.upload_id);
 				this.updateUpload(queueItem.id, {
 					name: data.file_name,
 					size: data.size || 0,
 					status: 'uploading',
-					socket,
 					remoteUploadId: data.upload_id,
 					cancelRemote: () => api.cancelMegaLinkImport(data.upload_id),
 				});
 
-				socket.onmessage = (event) => {
-					if (abortController.signal.aborted) return;
-					let message;
-					try {
-						message = JSON.parse(event.data);
-					} catch {
-						return;
-					}
-
-					if (message.type === 'upload:started' || message.type === 'upload:progress') {
-						this.updateUpload(queueItem.id, {
-							progress_percentage: Number(message.percent || 0),
-							status: message.status || 'uploading',
-						});
-					}
-					if (message.type === 'upload:complete') {
-						this.updateUpload(queueItem.id, { progress_percentage: 100, status: 'completed' });
-						socket.close();
-						onCompleted?.(message.file);
-					}
-					if (message.type === 'upload:error') {
-						this.updateUpload(queueItem.id, { status: 'failed', error: message.message });
-						socket.close();
-					}
-				};
-				socket.onerror = () => {
-					const current = this.uploads.find((item) => item.id === queueItem.id);
-					if (current && !['completed', 'failed', 'cancelled'].includes(current.status)) {
-						this.updateUpload(queueItem.id, { status: 'failed', error: i18n.global.t('megaLink.socketError') });
-					}
-				};
+				createImportSocketTracker({
+					uploadId: data.upload_id,
+					signal: abortController.signal,
+					update: (patch) => this.updateUpload(queueItem.id, patch),
+					onCompleted,
+				});
 
 				return data;
 			} catch (error) {

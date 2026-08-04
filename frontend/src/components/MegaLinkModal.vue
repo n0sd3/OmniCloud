@@ -1,6 +1,7 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { activateFocusTrap } from '../utils/focusTrap.js';
 import { looksLikeMegaFileLink } from '../utils/megaLink.js';
 
 const props = defineProps({
@@ -11,6 +12,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'download', 'import']);
 const { t } = useI18n();
+const dialogRef = ref(null);
 const inputRef = ref(null);
 const link = ref('');
 const touched = ref(false);
@@ -21,13 +23,23 @@ const validationMessage = computed(() => {
 	return trimmedLink.value ? t('megaLink.invalid') : t('megaLink.required');
 });
 
+let deactivateFocusTrap = null;
+
 watch(() => props.open, async (open) => {
+	deactivateFocusTrap?.();
+	deactivateFocusTrap = null;
 	if (!open) return;
 	link.value = '';
 	touched.value = false;
 	await nextTick();
-	inputRef.value?.focus();
+	if (!props.open) return;
+	deactivateFocusTrap = activateFocusTrap(dialogRef.value, {
+		initialFocus: inputRef.value,
+		onEscape: close,
+	});
 });
+
+onBeforeUnmount(() => deactivateFocusTrap?.());
 
 function close() {
 	if (!props.busy) emit('close');
@@ -41,8 +53,8 @@ function submit(action) {
 </script>
 
 <template>
-	<div v-if="open" class="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-4 backdrop-blur-sm" @mousedown.self="close" @keydown.esc.prevent="close">
-		<section role="dialog" aria-modal="true" aria-labelledby="mega-link-title" aria-describedby="mega-link-description" class="w-full max-w-lg rounded-[28px] border border-[#e0e3e7] bg-white p-6 text-[#202124] shadow-[0_24px_70px_rgba(15,23,42,0.24)] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+	<div v-if="open" class="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-4 backdrop-blur-sm" @mousedown.self="close">
+		<section ref="dialogRef" role="dialog" aria-modal="true" aria-labelledby="mega-link-title" aria-describedby="mega-link-description" class="w-full max-w-lg rounded-[28px] border border-[#e0e3e7] bg-white p-6 text-[#202124] shadow-[0_24px_70px_rgba(15,23,42,0.24)] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
 			<h2 id="mega-link-title" class="text-xl font-medium">{{ t('megaLink.title') }}</h2>
 			<p id="mega-link-description" class="mt-2 text-sm leading-6 text-[#5f6368] dark:text-slate-400">{{ t('megaLink.description') }}</p>
 

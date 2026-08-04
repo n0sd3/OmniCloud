@@ -24,6 +24,7 @@ const fileTreeStore = useFileTreeStore();
 
 const props = defineProps({
 	currentSection: { type: String, required: true },
+	showMegaLinkAction: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['new-folder', 'upload-files', 'upload-folder', 'mega-link']);
@@ -393,7 +394,7 @@ const profileLinks = [
 								<span>{{ t('sidebar.uploadFolder') }}</span>
 								<IconChevronRight :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
 							</button>
-							<button type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('mega-link')">
+							<button v-if="showMegaLinkAction" type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('mega-link')">
 								<span>{{ t('megaLink.menuLabel') }}</span>
 								<IconLink :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
 							</button>
@@ -449,7 +450,7 @@ const profileLinks = [
 							<span>{{ t('sidebar.uploadFolder') }}</span>
 							<IconChevronRight :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
 						</button>
-						<button type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('mega-link')">
+						<button v-if="showMegaLinkAction" type="button" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm text-[#202124] hover:bg-[#f8fafd] dark:text-slate-100 dark:hover:bg-slate-700/70" @click="runCreateAction('mega-link')">
 							<span>{{ t('megaLink.menuLabel') }}</span>
 							<IconLink :size="16" :stroke="2" class="text-[#5f6368] dark:text-slate-400" />
 						</button>

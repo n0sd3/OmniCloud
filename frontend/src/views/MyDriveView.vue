@@ -326,7 +326,7 @@ onBeforeUnmount(() => {
 
 <template>
 	<MegaLinkModal :open="isMegaLinkModalOpen" :busy="isMegaLinkBusy" :error="megaLinkError" @close="closeMegaLinkModal" @download="downloadMegaLink" @import="importMegaLink" />
-	<DriveShell current-section="drive" @new-folder="createNewFolder" @upload-files="openFilePicker" @upload-folder="openFolderPicker" @mega-link="openMegaLinkModal">
+	<DriveShell current-section="drive" show-mega-link-action @new-folder="createNewFolder" @upload-files="openFilePicker" @upload-folder="openFolderPicker" @mega-link="openMegaLinkModal">
 		<div class="contents" @dragenter.prevent="handleDragEnter" @dragover.prevent="handleDragEnter" @dragleave.prevent="handleDragLeave" @drop.prevent="handleDrop">
 			<FileListSurface ref="surfaceRef" :view="view" :loading="isLoading" :empty-message="t('drive.noFiles')" name-field="display_name" fill-height sortable :highlighted-file-id="highlightedFileId" @open="openItemOnDoubleClick" @open-selected="openSelectedItem">
 				<template #header>

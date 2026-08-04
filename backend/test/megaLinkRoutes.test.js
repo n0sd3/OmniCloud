@@ -167,6 +167,40 @@ test('download returns safe attachment metadata and exact ranged bytes', async (
 	}
 });
 
+test('download accepts a small native form submission through the same authenticated route', async () => {
+	const calls = [];
+	const downloads = testDownloads({
+		inspectPublic: async (link) => {
+			calls.push(['inspect', link]);
+			return { file_name: 'native.bin', size: 5, mime_type: 'application/octet-stream' };
+		},
+		streamPublic: async (link) => {
+			calls.push(['stream', link]);
+			return Readable.from(['hello']);
+		},
+	});
+	const server = await startServer(createMegaLinkRouter({ downloads, imports: testImports() }));
+	try {
+		const response = await fetch(`${server.baseUrl}/api/mega-links/download`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/x-www-form-urlencoded',
+				'X-Test-User': 'u1',
+			},
+			body: new URLSearchParams({ link: LINK }),
+		});
+		assert.equal(response.status, 200);
+		assert.equal(await response.text(), 'hello');
+		assert.match(response.headers.get('content-disposition'), /native\.bin/);
+		assert.deepEqual(calls, [
+			['inspect', CANONICAL_LINK],
+			['stream', CANONICAL_LINK],
+		]);
+	} finally {
+		await server.close();
+	}
+});
+
 test('import uses the submitted current path and allocation result', async () => {
 	let sessionPayload;
 	let streamLink;

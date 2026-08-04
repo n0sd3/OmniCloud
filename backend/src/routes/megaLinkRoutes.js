@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { pipeline } from 'node:stream/promises';
 import { requireAppUser } from '../middleware/authMiddleware.js';
 import { megaDownloadService, normalizeMegaFileLink } from '../services/megaDownloadService.js';
@@ -19,6 +19,13 @@ const ERRORS = {
 	NO_SPACE: [507, 'Not enough cloud storage space'],
 	NO_STREAMING_DESTINATION: [422, 'No streaming-capable cloud account available'],
 };
+
+const parseNativeDownloadForm = express.urlencoded({
+	extended: false,
+	limit: '4kb',
+	parameterLimit: 1,
+	type: 'application/x-www-form-urlencoded',
+});
 
 function sendError(res, error) {
 	const [status, message] = ERRORS[error?.code] || [500, 'MEGA request failed'];
@@ -57,7 +64,7 @@ export function createMegaLinkRouter({
 		}
 	});
 
-	router.post('/mega-links/download', async (req, res) => {
+	router.post('/mega-links/download', parseNativeDownloadForm, async (req, res) => {
 		const controller = new AbortController();
 		const onClose = () => {
 			if (!res.writableFinished) controller.abort();
