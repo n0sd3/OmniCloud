@@ -1,15 +1,19 @@
 package com.tonikelope.megabasterd;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpContext;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -31,11 +35,12 @@ public final class HeadlessServer {
         }
 
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
-        server.setExecutor(new ThreadPoolExecutor(4, 4, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<Runnable>(32), daemonThreads(), new ThreadPoolExecutor.AbortPolicy()));
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(4, 4, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<Runnable>(32), daemonThreads(), new ThreadPoolExecutor.AbortPolicy());
+        server.setExecutor(executor);
         server.createContext("/health", exchange -> health(exchange, secret));
         server.createContext("/inspect", exchange -> inspect(exchange, secret, transfer));
         server.createContext("/stream", exchange -> stream(exchange, secret, transfer));
-        return server;
+        return new ManagedServer(server, executor);
     }
 
     public static void main(String[] args) throws Exception {
@@ -88,15 +93,19 @@ public final class HeadlessServer {
         }
         try {
             StreamRequest request = streamRequest(request(exchange), transfer);
+            if (request.transfer.size == 0) {
+                if (request.range != null) {
+                    throw new IllegalArgumentException("invalid range");
+                }
+                emptyStream(exchange, request.transfer.fileName);
+                return;
+            }
             long start = request.range == null ? 0 : request.range.start;
             long end = request.range == null ? request.transfer.size - 1 : request.range.end == null ? request.transfer.size - 1 : request.range.end;
-            if (request.transfer.size == 0 && request.range == null) {
-                end = -1;
-            }
-            if (start < 0 || end < start || end >= request.transfer.size && request.transfer.size != 0) {
+            if (start < 0 || end < start || end >= request.transfer.size) {
                 throw new IllegalArgumentException("invalid range");
             }
-            long length = request.transfer.size == 0 ? 0 : end - start + 1;
+            long length = end - start + 1;
             exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + headerFileName(request.transfer.fileName) + "\"");
             exchange.getResponseHeaders().set("Content-Type", MIME_TYPE);
             exchange.getResponseHeaders().set("Accept-Ranges", "bytes");
@@ -136,22 +145,24 @@ public final class HeadlessServer {
         if (range == null || range.isNull()) {
             return null;
         }
-        if (!range.isObject() || !range.has("start") || !range.get("start").canConvertToLong()) {
+        if (!range.isObject() || !range.has("start") || !range.get("start").isIntegralNumber()) {
             throw new IllegalArgumentException("invalid range");
         }
         JsonNode end = range.get("end");
-        if (end != null && !end.isNull() && !end.canConvertToLong()) {
+        if (end != null && !end.isNull() && !end.isIntegralNumber()) {
             throw new IllegalArgumentException("invalid range");
         }
         return new HeadlessTransfer.ByteRange(range.get("start").longValue(), end == null || end.isNull() ? null : end.longValue());
     }
 
     private static JsonNode request(HttpExchange exchange) throws IOException {
-        JsonNode request = JSON.readTree(exchange.getRequestBody());
-        if (request == null || !request.isObject()) {
-            throw new IllegalArgumentException("JSON object is required");
+        try (JsonParser parser = JSON.getFactory().createParser(exchange.getRequestBody())) {
+            JsonNode request = JSON.readTree(parser);
+            if (request == null || !request.isObject() || parser.nextToken() != null) {
+                throw new IllegalArgumentException("JSON object is required");
+            }
+            return request;
         }
-        return request;
     }
 
     private static String requiredText(JsonNode object, String field) {
@@ -164,7 +175,7 @@ public final class HeadlessServer {
 
     private static long requiredLong(JsonNode object, String field) {
         JsonNode value = object.get(field);
-        if (value == null || !value.canConvertToLong() || value.longValue() < 0) {
+        if (value == null || !value.isIntegralNumber() || value.longValue() < 0) {
             throw new IllegalArgumentException(field + " is required");
         }
         return value.longValue();
@@ -186,6 +197,15 @@ public final class HeadlessServer {
 
     private static void error(HttpExchange exchange, int status, String code) throws IOException {
         write(exchange, status, JSON.createObjectNode().put("code", code));
+    }
+
+    private static void emptyStream(HttpExchange exchange, String fileName) throws IOException {
+        exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + headerFileName(fileName) + "\"");
+        exchange.getResponseHeaders().set("Content-Type", MIME_TYPE);
+        exchange.getResponseHeaders().set("Accept-Ranges", "bytes");
+        exchange.getResponseHeaders().set("Content-Length", "0");
+        exchange.sendResponseHeaders(200, -1);
+        exchange.close();
     }
 
     private static int status(HeadlessTransferException error) {
@@ -235,6 +255,72 @@ public final class HeadlessServer {
         private StreamRequest(HeadlessTransfer.ResolvedTransfer transfer, HeadlessTransfer.ByteRange range) {
             this.transfer = transfer;
             this.range = range;
+        }
+    }
+
+    private static final class ManagedServer extends HttpServer {
+        private final HttpServer server;
+        private final ThreadPoolExecutor executor;
+
+        private ManagedServer(HttpServer server, ThreadPoolExecutor executor) {
+            this.server = server;
+            this.executor = executor;
+        }
+
+        @Override
+        public void bind(InetSocketAddress address, int backlog) throws IOException {
+            server.bind(address, backlog);
+        }
+
+        @Override
+        public void start() {
+            server.start();
+        }
+
+        @Override
+        public void setExecutor(Executor executor) {
+            server.setExecutor(executor);
+        }
+
+        @Override
+        public Executor getExecutor() {
+            return server.getExecutor();
+        }
+
+        @Override
+        public void stop(int delay) {
+            server.stop(delay);
+            executor.shutdownNow();
+            try {
+                executor.awaitTermination(2, TimeUnit.SECONDS);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        @Override
+        public HttpContext createContext(String path, HttpHandler handler) {
+            return server.createContext(path, handler);
+        }
+
+        @Override
+        public HttpContext createContext(String path) {
+            return server.createContext(path);
+        }
+
+        @Override
+        public void removeContext(String path) throws IllegalArgumentException {
+            server.removeContext(path);
+        }
+
+        @Override
+        public void removeContext(HttpContext context) {
+            server.removeContext(context);
+        }
+
+        @Override
+        public InetSocketAddress getAddress() {
+            return server.getAddress();
         }
     }
 }

@@ -31,14 +31,39 @@ public final class HeadlessServerTest {
             assertStatus(200, request(server, "GET", "/health", "Bearer " + SECRET, null));
             assertJson(200, request(server, "POST", "/inspect", "Bearer " + SECRET, "{\"link\":\"" + LINK + "\"}"),
                     "{\"file_name\":\"fixture.bin\",\"size\":36,\"mime_type\":\"application/octet-stream\"}");
-            assertBody(206, request(server, "POST", "/stream", "Bearer " + SECRET, resolvedRangeJson(url(content))), "789abcdef");
+            Response ranged = request(server, "POST", "/stream", "Bearer " + SECRET, resolvedRangeJson(url(content)));
+            assertBody(206, ranged, "789abcdef");
+            assertHeaders(ranged, "fixture.bin", "9", "bytes 7-15/36");
+            Response empty = request(server, "POST", "/stream", "Bearer " + SECRET, emptyResolvedJson());
+            assertBody(200, empty, "");
+            assertHeaders(empty, "empty.bin", "0", null);
+            if (empty.transferEncoding != null) {
+                throw new AssertionError("empty stream must not be chunked: " + empty.transferEncoding);
+            }
             assertError(400, request(server, "POST", "/inspect", "Bearer " + SECRET, "{"), "INVALID_INPUT");
+            assertError(400, request(server, "POST", "/inspect", "Bearer " + SECRET, "{\"link\":\"" + LINK + "\"} true"), "INVALID_INPUT");
+            assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
+                            + "\",\"file_name\":\"fixture.bin\",\"size\":36.5,\"range\":null}"), "INVALID_INPUT");
+            assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
+                            + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":7.5,\"end\":15}}"), "INVALID_INPUT");
+            assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
+                            + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":7,\"end\":15.5}}"), "INVALID_INPUT");
+            assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
+                            + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":-1,\"end\":0}}"), "INVALID_INPUT");
+            assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
+                            + "\",\"file_name\":\"empty.bin\",\"size\":0,\"range\":{\"start\":0,\"end\":0}}"), "INVALID_INPUT");
             assertError(429, request(server, "POST", "/stream", "Bearer " + SECRET,
                     "{\"source\":\"public\",\"link\":\"" + QUOTA_LINK + "\",\"range\":{\"start\":0,\"end\":9}}"), "QUOTA");
         } finally {
             server.stop(0);
             content.stop(0);
         }
+        assertNoExecutorThreads();
         System.out.println("HeadlessServerTest OK");
     }
 
@@ -49,6 +74,11 @@ public final class HeadlessServerTest {
     private static String resolvedRangeJson(String downloadUrl) {
         return "{\"source\":\"resolved\",\"download_url\":\"" + downloadUrl + "\",\"file_key\":\"" + FILE_KEY
                 + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":7,\"end\":15}}";
+    }
+
+    private static String emptyResolvedJson() {
+        return "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
+                + "\",\"file_name\":\"empty.bin\",\"size\":0,\"range\":null}";
     }
 
     private static Response request(HttpServer server, String method, String path, String authorization, String body) throws IOException {
@@ -69,7 +99,7 @@ public final class HeadlessServerTest {
         }
         int status = connection.getResponseCode();
         try (java.io.InputStream input = status >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
-            return new Response(status, input == null ? "" : new String(readAll(input), StandardCharsets.UTF_8));
+            return new Response(status, input == null ? "" : new String(readAll(input), StandardCharsets.UTF_8), connection);
         } finally {
             connection.disconnect();
         }
@@ -136,6 +166,28 @@ public final class HeadlessServerTest {
         }
     }
 
+    private static void assertHeaders(Response response, String fileName, String contentLength, String contentRange) {
+        assertEquals("attachment; filename=\"" + fileName + "\"", response.contentDisposition);
+        assertEquals("application/octet-stream", response.contentType);
+        assertEquals("bytes", response.acceptRanges);
+        assertEquals(contentLength, response.contentLength);
+        assertEquals(contentRange, response.contentRange);
+    }
+
+    private static void assertEquals(String expected, String actual) {
+        if (expected == null ? actual != null : !expected.equals(actual)) {
+            throw new AssertionError("expected " + expected + " but got " + actual);
+        }
+    }
+
+    private static void assertNoExecutorThreads() {
+        for (Thread thread : Thread.getAllStackTraces().keySet()) {
+            if (thread.isAlive() && thread.getName().startsWith("megabasterd-headless")) {
+                throw new AssertionError("executor thread remains alive: " + thread.getName());
+            }
+        }
+    }
+
     private static void assertError(int expectedStatus, Response response, String code) {
         assertStatus(expectedStatus, response);
         if (!response.body.contains("\"code\":\"" + code + "\"")) {
@@ -153,10 +205,22 @@ public final class HeadlessServerTest {
     private static final class Response {
         private final int status;
         private final String body;
+        private final String contentDisposition;
+        private final String contentType;
+        private final String acceptRanges;
+        private final String contentLength;
+        private final String contentRange;
+        private final String transferEncoding;
 
-        private Response(int status, String body) {
+        private Response(int status, String body, HttpURLConnection connection) {
             this.status = status;
             this.body = body;
+            this.contentDisposition = connection.getHeaderField("Content-Disposition");
+            this.contentType = connection.getHeaderField("Content-Type");
+            this.acceptRanges = connection.getHeaderField("Accept-Ranges");
+            this.contentLength = connection.getHeaderField("Content-Length");
+            this.contentRange = connection.getHeaderField("Content-Range");
+            this.transferEncoding = connection.getHeaderField("Transfer-Encoding");
         }
     }
 
