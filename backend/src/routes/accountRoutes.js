@@ -28,6 +28,11 @@ import {
 	connectPCloudAccount,
 } from '../services/externalAccountService.js';
 import { clearFilesForAccount } from '../services/fileService.js';
+import {
+	startGooglePhotosImport,
+	refreshGooglePhotosImport,
+	cancelGooglePhotosImport,
+} from '../services/googlePhotosImportService.js';
 
 const router = Router();
 
@@ -66,6 +71,30 @@ router.get('/accounts/google/connect', (req, res, next) => {
 	try {
 		const data = createGoogleAuthorizationRequest(req.user.id);
 		res.json({ data });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.post('/accounts/google/:accountId/photos/imports', async (req, res, next) => {
+	try {
+		res.status(201).json({ data: await startGooglePhotosImport(req.user.id, req.params.accountId) });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.get('/accounts/google/photos/imports/:importId', async (req, res, next) => {
+	try {
+		res.json({ data: await refreshGooglePhotosImport(req.user.id, req.params.importId) });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.delete('/accounts/google/photos/imports/:importId', async (req, res, next) => {
+	try {
+		res.json({ data: await cancelGooglePhotosImport(req.user.id, req.params.importId) });
 	} catch (error) {
 		next(error);
 	}

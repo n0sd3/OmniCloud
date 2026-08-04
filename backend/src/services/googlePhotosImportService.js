@@ -4,6 +4,7 @@ import { getAccountById, markAccountStatus } from './accountService.js';
 import { emitUploadEvent } from './websocketHub.js';
 import { syncAccount } from './syncService.js';
 import { decryptJson } from '../utils/crypto.js';
+import { isAuthError } from '../utils/providerErrors.js';
 
 export const GOOGLE_PHOTOS_PICKER_SCOPE =
 	'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
@@ -32,6 +33,14 @@ function scopesFor(credentials) {
 	return new Set(Array.isArray(credentials.scope) ? credentials.scope : String(credentials.scope || '').split(/\s+/));
 }
 
+function itemFileName(item) {
+	return item.mediaFile?.filename || item.id || 'media';
+}
+
+function itemDownloadUrl(item) {
+	return `${item.mediaFile?.baseUrl || ''}=${item.type === 'VIDEO' ? 'dv' : 'd'}`;
+}
+
 export function buildGooglePhotosImportPath(email) {
 	const local = String(email || '').split('@')[0].replace(/[\\/\0]/g, '_').trim() || 'conta';
 	return `/OmniCloud/Google Fotos/${local}/`;
@@ -57,7 +66,7 @@ export function createGooglePhotosImportService({
 	emitEvent = emitUploadEvent,
 	sync = syncAccount,
 	markStatus = markAccountStatus,
-	runImport = async () => {},
+	runImport,
 	now = Date.now,
 } = {}) {
 	const jobs = new Map();
@@ -107,6 +116,93 @@ export function createGooglePhotosImportService({
 		return items;
 	}
 
+	function emitJobEvent(job, type, extra = {}) {
+		emitEvent(job.id, {
+			type,
+			importId: job.id,
+			status: job.status,
+			total: job.total,
+			completed: job.completed,
+			failed: job.failed,
+			...extra,
+		});
+	}
+
+	async function importItems(job, items) {
+		let stopped = false;
+		let index = 0;
+
+		try {
+			const virtualPath = buildGooglePhotosImportPath(job.account.email);
+			const remoteParentId = await job.adapter.ensureRemotePath(virtualPath);
+			const existingNames = await job.adapter.listFileNames(remoteParentId);
+			const allocatedNames = allocateDuplicateNames(items.map(itemFileName), existingNames);
+			emitJobEvent(job, 'photos-import:started');
+
+			async function worker() {
+				while (!stopped && job.status !== 'cancelled') {
+					const itemIndex = index++;
+					if (itemIndex >= items.length) return;
+					const item = items[itemIndex];
+					const fileName = allocatedNames[itemIndex];
+
+					try {
+						const { data: stream } = await job.oauthClient.request({
+							url: itemDownloadUrl(item),
+							responseType: 'stream',
+						});
+						if (stopped || job.status === 'cancelled') return;
+						emitJobEvent(job, 'photos-import:item-started', { fileName });
+						await job.adapter.uploadStream({
+							stream,
+							fileName,
+							mimeType: item.mediaFile?.mimeType || 'application/octet-stream',
+							virtualPath,
+							remoteParentId,
+							onProgress: (bytes) => emitJobEvent(job, 'photos-import:progress', {
+								fileName,
+								bytes: Number(bytes) || 0,
+							}),
+						});
+						job.completed += 1;
+						emitJobEvent(job, 'photos-import:item-complete', { fileName });
+					} catch (error) {
+						job.failed += 1;
+						const message = errorMessage(error);
+						job.errors.push({ fileName, message });
+						emitJobEvent(job, 'photos-import:item-error', { fileName, message });
+						if (isAuthError(error)) {
+							stopped = true;
+							markStatus(job.userId, job.accountId, 'invalid_token');
+						}
+					}
+				}
+			}
+
+			await Promise.all([worker(), worker()]);
+			if (job.completed) {
+				try {
+					await sync(job.userId, job.account);
+				} catch (error) {
+					job.errors.push(errorMessage(error));
+				}
+			}
+
+			if (job.status !== 'cancelled') {
+				job.status = job.failed || job.completed < job.total
+					? (job.completed ? 'completed_with_errors' : 'failed')
+					: 'completed';
+			}
+		} catch (error) {
+			if (isAuthError(error)) markStatus(job.userId, job.accountId, 'invalid_token');
+			job.errors.push(errorMessage(error));
+			if (job.status !== 'cancelled') job.status = 'failed';
+		} finally {
+			await deletePickerSession(job);
+			emitJobEvent(job, 'photos-import:complete');
+		}
+	}
+
 	async function start(userId, accountId) {
 		const account = await getAccount(userId, accountId);
 		if (!account || account.provider !== 'google_drive') throw new Error('Google Drive account is required');
@@ -135,6 +231,8 @@ export function createGooglePhotosImportService({
 			accountId: account.id,
 			pickerSessionId: session.id,
 			oauthClient,
+			account,
+			adapter,
 			pickerUri: session.pickerUri,
 			pollIntervalMs,
 			timeoutAt: startedAt + timeoutMs,
@@ -161,7 +259,7 @@ export function createGooglePhotosImportService({
 			if (job.status !== 'waiting_for_selection') return sanitizeJob(job);
 			job.total = items.length;
 			job.status = items.length ? 'importing' : 'completed';
-			if (items.length) job.promise = runImport(job, items);
+			if (items.length) job.promise = runImport ? runImport(job, items) : importItems(job, items);
 			if (!items.length) await deletePickerSession(job);
 		} catch (error) {
 			throw new Error(errorMessage(error));
