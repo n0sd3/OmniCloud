@@ -219,26 +219,3 @@ public final class HeadlessTransfer {
         }
     }
 }
-
-final class HeadlessTransferException extends Exception {
-
-    enum Code {
-        INVALID_INPUT, NOT_FOUND, QUOTA, UPSTREAM, CANCELLED
-    }
-
-    final Code code;
-
-    HeadlessTransferException(Code code, String message) {
-        super(message);
-        this.code = code;
-    }
-
-    HeadlessTransferException(Code code, String message, Throwable cause) {
-        super(message, cause);
-        this.code = code;
-    }
-
-    Code getCode() {
-        return code;
-    }
-}

@@ -55,7 +55,7 @@ public final class HeadlessTransferTest {
             transfer.streamResolved(transferToQuota, null, new ByteArrayOutputStream());
             throw new AssertionError("expected quota error");
         } catch (HeadlessTransferException error) {
-            assertEquals(HeadlessTransferException.Code.QUOTA, error.code);
+            assertEquals(HeadlessTransferException.Code.QUOTA, error.getCode());
         }
     }
 
@@ -69,7 +69,7 @@ public final class HeadlessTransferTest {
             });
             throw new AssertionError("expected cancellation error");
         } catch (HeadlessTransferException error) {
-            assertEquals(HeadlessTransferException.Code.CANCELLED, error.code);
+            assertEquals(HeadlessTransferException.Code.CANCELLED, error.getCode());
         }
     }
 
