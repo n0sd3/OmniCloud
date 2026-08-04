@@ -50,16 +50,25 @@ public final class HeadlessServerTest {
                             + "\",\"file_name\":\"fixture.bin\",\"size\":18446744073709551616,\"range\":null}"), "INVALID_INPUT");
             assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
                     "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
+                            + "\",\"file_name\":\"fixture.bin\",\"size\":-9223372036854775809,\"range\":null}"), "INVALID_INPUT");
+            assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
                             + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":7.5,\"end\":15}}"), "INVALID_INPUT");
             assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
                     "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
                             + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":18446744073709551616,\"end\":15}}"), "INVALID_INPUT");
             assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
                     "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
+                            + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":-9223372036854775809,\"end\":15}}"), "INVALID_INPUT");
+            assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
                             + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":7,\"end\":15.5}}"), "INVALID_INPUT");
             assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
                     "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
                             + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":0,\"end\":18446744073709551616}}"), "INVALID_INPUT");
+            assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
+                            + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":0,\"end\":-9223372036854775809}}"), "INVALID_INPUT");
             assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
                     "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
                             + "\",\"file_name\":\"fixture.bin\",\"size\":36,\"range\":{\"start\":-1,\"end\":0}}"), "INVALID_INPUT");
