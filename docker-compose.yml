@@ -17,9 +17,27 @@ services:
       FILE_CACHE_PATH: /app/cache/files
       SMB_PROVISION_SECRET: ${SMB_PROVISION_SECRET:?defina SMB_PROVISION_SECRET no .env}
       SMB_HOST: ${SMB_HOST:-omnicloud}
+      MEGABASTERD_URL: http://megabasterd:8788
+      MEGABASTERD_INTERNAL_SECRET: ${MEGABASTERD_INTERNAL_SECRET:?defina MEGABASTERD_INTERNAL_SECRET no .env}
+      MEGABASTERD_TIMEOUT_MS: ${MEGABASTERD_TIMEOUT_MS:-15000}
+      MEGABASTERD_FALLBACK_ENABLED: ${MEGABASTERD_FALLBACK_ENABLED:-true}
     volumes:
       - omnicloud_api_data:/app/data
       - omnicloud_file_cache:/app/cache/files
+    depends_on:
+      - megabasterd
+    restart: unless-stopped
+
+  megabasterd:
+    build:
+      context: ./megabasterd-headless
+    environment:
+      MEGABASTERD_INTERNAL_SECRET: ${MEGABASTERD_INTERNAL_SECRET:?defina MEGABASTERD_INTERNAL_SECRET no .env}
+    healthcheck:
+      test: ["CMD", "java", "-cp", "/app/megabasterd.jar", "com.tonikelope.megabasterd.HeadlessHealthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   web:

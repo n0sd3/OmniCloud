@@ -92,6 +92,14 @@ SMB_HOST=omnicloud
 RCLONE_VFS_CACHE_MAX_SIZE=20G
 ```
 
+When MEGA downloads are enabled, the same root `.env` also needs an independent internal secret for the MegaBasterd sidecar. Generate it once with `openssl rand -hex 32`; do not reuse the SMB secret.
+
+```env
+MEGABASTERD_INTERNAL_SECRET=replace-with-openssl-rand-hex-32-output
+MEGABASTERD_TIMEOUT_MS=15000
+MEGABASTERD_FALLBACK_ENABLED=true
+```
+
 The SMB variables are:
 
 - `SMB_PROVISION_SECRET` — required secret shared only by the API and SMB provisioner
@@ -345,6 +353,23 @@ Open the app at:
 
 - Frontend: `http://localhost:8080`
 - API through Nginx proxy: `http://localhost:8080/api`
+
+### MEGA download sidecar
+
+Compose builds `megabasterd-headless/` as an internal-only service at `http://megabasterd:8788`; it has no host port. It is a GPL-3.0 MegaBasterd-derived overlay pinned to upstream revision `3b204d226515a6f4ecb6630371e19722077b03fc`. Its source, license, attribution, and build instructions are in [`megabasterd-headless/`](megabasterd-headless/).
+
+The API uses the sidecar first and makes one `megajs` fallback attempt only when it fails before a response begins. A sidecar outage therefore leaves the API usable, and `/api/health` reports the sidecar state without exposing its secret. Public MEGA file links are available through authenticated `POST /api/mega-links/inspect`, `/download`, and `/import` routes; only canonical HTTPS MEGA **file** links are supported, not folders.
+
+For a deployment smoke test:
+
+```bash
+docker compose build megabasterd api web
+docker compose up -d
+docker compose ps
+curl -fsS http://localhost:8080/api/health
+```
+
+Review the GPL source-distribution obligations before distributing images that include the sidecar. This feature must not be used to bypass MEGA limits or terms of use.
 
 ### 3. Stop the containers
 

@@ -98,7 +98,7 @@ export function createMegaDownloadService({
 	};
 }
 
-const megaBasterdClient = createMegaBasterdClient({
+export const megaBasterdClient = createMegaBasterdClient({
 	baseUrl: env.megaBasterdUrl,
 	secret: env.megaBasterdSecret,
 	timeoutMs: env.megaBasterdTimeoutMs,

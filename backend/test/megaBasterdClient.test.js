@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import test from 'node:test';
+import express from 'express';
 
 import { createMegaBasterdClient, MegaBasterdError } from '../src/services/megaBasterdClient.js';
+import healthRoutes, { createHealthRouter } from '../src/routes/healthRoutes.js';
 
 async function startServer(handler) {
 	const server = http.createServer(handler);
@@ -26,6 +28,61 @@ async function read(stream) {
 	for await (const chunk of stream) chunks.push(chunk);
 	return Buffer.concat(chunks).toString('utf8');
 }
+
+async function healthResponse(router = healthRoutes) {
+	const app = express();
+	app.use('/api', router);
+	const server = app.listen(0, '127.0.0.1');
+	await once(server, 'listening');
+	try {
+		return await fetch(`http://127.0.0.1:${server.address().port}/api/health`);
+	} finally {
+		server.close();
+	}
+}
+
+test('MEGA download health reports an unconfigured sidecar without transfer data', async () => {
+	const response = await healthResponse(createHealthRouter({ secret: '   ' }));
+	const body = await response.json();
+
+	assert.equal(response.status, 200);
+	assert.deepEqual(body.mega_download, {
+		sidecar: 'unconfigured',
+		fallback_enabled: true,
+	});
+	assert.doesNotMatch(JSON.stringify(body), /https:\/\/signed\.example|test-secret/);
+});
+
+test('MEGA download health reports a configured reachable sidecar without its response data', async () => {
+	const response = await healthResponse(createHealthRouter({
+		secret: 'test-secret',
+		client: { health: async () => ({ status: 'ok', download_url: 'https://signed.example/file' }) },
+	}));
+	const body = await response.json();
+
+	assert.equal(response.status, 200);
+	assert.deepEqual(body.mega_download, {
+		sidecar: 'available',
+		fallback_enabled: true,
+	});
+	assert.doesNotMatch(JSON.stringify(body), /https:\/\/signed\.example|test-secret/);
+});
+
+test('MEGA download health keeps the API healthy when a configured sidecar is unavailable', async () => {
+	const response = await healthResponse(createHealthRouter({
+		secret: 'test-secret',
+		fallbackEnabled: false,
+		client: { health: async () => { throw new Error('https://signed.example/file'); } },
+	}));
+	const body = await response.json();
+
+	assert.equal(response.status, 200);
+	assert.deepEqual(body.mega_download, {
+		sidecar: 'unavailable',
+		fallback_enabled: false,
+	});
+	assert.doesNotMatch(JSON.stringify(body), /https:\/\/signed\.example|test-secret/);
+});
 
 test('MegaBasterd client authenticates inspect requests and parses metadata', async (t) => {
 	const fixture = await startServer(async (request, response) => {
