@@ -145,11 +145,11 @@ public final class HeadlessServer {
         if (range == null || range.isNull()) {
             return null;
         }
-        if (!range.isObject() || !range.has("start") || !range.get("start").isIntegralNumber()) {
+        if (!range.isObject() || !range.has("start") || !range.get("start").isIntegralNumber() || !range.get("start").canConvertToLong()) {
             throw new IllegalArgumentException("invalid range");
         }
         JsonNode end = range.get("end");
-        if (end != null && !end.isNull() && !end.isIntegralNumber()) {
+        if (end != null && !end.isNull() && (!end.isIntegralNumber() || !end.canConvertToLong())) {
             throw new IllegalArgumentException("invalid range");
         }
         return new HeadlessTransfer.ByteRange(range.get("start").longValue(), end == null || end.isNull() ? null : end.longValue());
@@ -175,7 +175,7 @@ public final class HeadlessServer {
 
     private static long requiredLong(JsonNode object, String field) {
         JsonNode value = object.get(field);
-        if (value == null || !value.isIntegralNumber() || value.longValue() < 0) {
+        if (value == null || !value.isIntegralNumber() || !value.canConvertToLong() || value.longValue() < 0) {
             throw new IllegalArgumentException(field + " is required");
         }
         return value.longValue();
