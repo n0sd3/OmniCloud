@@ -375,7 +375,16 @@
 		"noAccounts": "No accounts connected yet.",
 		"reconnectNotSupported": "Provider {provider} does not support automatic reconnect.",
 		"connectSuccess": "{provider} account connected successfully.",
-		"connectFailed": "Failed to connect {provider} account."
+		"connectFailed": "Failed to connect {provider} account.",
+		"importGooglePhotos": "Import from Google Photos",
+		"waitingGooglePhotos": "Waiting for your Google Photos selection...",
+		"importingGooglePhotos": "Importing {completed} of {total}...",
+		"googlePhotosImportComplete": "Imported {count} item(s).",
+		"googlePhotosImportPartial": "Imported {completed}; {failed} failed.",
+		"googlePhotosReconnect": "Reconnect this Google Drive account to authorize Google Photos Picker.",
+		"googlePhotosCancelled": "Google Photos import cancelled.",
+		"googlePhotosImportCounts": "{total} selected · {completed} complete · {failed} failed",
+		"googlePhotosPopupBlocked": "Please allow pop-ups to import from Google Photos."
 	},
 	"allocation": {
 		"title": "Storage allocation",

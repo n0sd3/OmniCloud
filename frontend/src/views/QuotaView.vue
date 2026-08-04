@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
@@ -43,6 +43,9 @@ const isConnectMenuOpen = ref(false);
 const isMegaModalOpen = ref(false);
 const isPCloudModalOpen = ref(false);
 const isS3ModalOpen = ref(false);
+const photoImports = ref({});
+const photoImportWatches = new Map();
+const TERMINAL_PHOTO_IMPORT_STATUSES = new Set(['completed', 'completed_with_errors', 'failed', 'cancelled']);
 
 const ALLOCATION_STRATEGIES = ['round_robin', 'weighted_round_robin', 'least_used', 'most_free', 'manual'];
 const activeTab = ref('overview');
@@ -228,6 +231,116 @@ function accountActionLabel(account) {
 	}
 
 	return isDisconnectingId.value === account.id ? t('storage.disconnecting') : t('storage.disconnect');
+}
+
+function isPhotoImportActive(accountId) {
+	const status = photoImports.value[accountId]?.status;
+	return status && !TERMINAL_PHOTO_IMPORT_STATUSES.has(status);
+}
+
+function photoImportMessage(photoImport) {
+	if (photoImport.status === 'waiting_for_selection') return t('storage.waitingGooglePhotos');
+	if (photoImport.status === 'importing') {
+		return t('storage.importingGooglePhotos', { completed: photoImport.completed, total: photoImport.total });
+	}
+	if (photoImport.status === 'completed') return t('storage.googlePhotosImportComplete', { count: photoImport.completed });
+	if (photoImport.status === 'cancelled') return t('storage.googlePhotosCancelled');
+	return t('storage.googlePhotosImportPartial', { completed: photoImport.completed, failed: photoImport.failed });
+}
+
+function stopPhotoImportWatch(accountId, { closeWindow = true } = {}) {
+	const watch = photoImportWatches.get(accountId);
+	if (!watch) return;
+
+	photoImportWatches.delete(accountId);
+	if (watch.timer) window.clearTimeout(watch.timer);
+	watch.socket?.close();
+	if (closeWindow && !watch.pickerWindow?.closed) watch.pickerWindow.close();
+}
+
+function updatePhotoImport(account, watch, update) {
+	if (photoImportWatches.get(account.id) !== watch) return false;
+
+	const photoImport = { ...photoImports.value[account.id], ...update };
+	photoImports.value = { ...photoImports.value, [account.id]: photoImport };
+	if (!TERMINAL_PHOTO_IMPORT_STATUSES.has(photoImport.status)) return true;
+
+	stopPhotoImportWatch(account.id);
+	if (Number(photoImport.completed) > 0) {
+		accountStore.loadAccounts().catch((error) => {
+			actionError.value = error.message;
+		});
+	}
+	return false;
+}
+
+function watchPhotoImport(account, photoImport, pickerWindow) {
+	stopPhotoImportWatch(account.id, { closeWindow: false });
+	const watch = {
+		importId: photoImport.id,
+		pickerWindow,
+		timer: null,
+		socket: api.createUploadSocket(photoImport.id),
+	};
+	const pollIntervalMs = Math.max(0, Number(photoImport.pollIntervalMs) || 1000);
+	photoImportWatches.set(account.id, watch);
+
+	watch.socket.onmessage = (event) => {
+		try {
+			const message = JSON.parse(event.data);
+			if (message.type?.startsWith('photos-import:')) updatePhotoImport(account, watch, message);
+		} catch {
+			// Ignore malformed socket messages; polling remains the fallback.
+		}
+	};
+
+	function schedulePoll() {
+		watch.timer = window.setTimeout(poll, pollIntervalMs);
+	}
+
+	async function poll() {
+		if (photoImportWatches.get(account.id) !== watch) return;
+		try {
+			const { data } = await api.getGooglePhotosImport(watch.importId);
+			if (!updatePhotoImport(account, watch, data)) return;
+
+			if (data.status === 'waiting_for_selection' && pickerWindow?.closed) {
+				const { data: cancelled } = await api.cancelGooglePhotosImport(watch.importId);
+				updatePhotoImport(account, watch, cancelled);
+				return;
+			}
+		} catch (error) {
+			if (photoImportWatches.get(account.id) === watch) actionError.value = error.message;
+		}
+
+		if (photoImportWatches.get(account.id) === watch) schedulePoll();
+	}
+
+	schedulePoll();
+}
+
+async function startGooglePhotosImport(account) {
+	const pickerWindow = window.open('', '_blank');
+	if (!pickerWindow) {
+		actionError.value = t('storage.googlePhotosPopupBlocked');
+		return;
+	}
+
+	let importId;
+	try {
+		actionError.value = '';
+		const { data } = await api.startGooglePhotosImport(account.id);
+		importId = data.id;
+		pickerWindow.location.replace(`${data.pickerUri}/autoclose`);
+		photoImports.value = { ...photoImports.value, [account.id]: data };
+		watchPhotoImport(account, data, pickerWindow);
+	} catch (error) {
+		pickerWindow.close();
+		if (importId) api.cancelGooglePhotosImport(importId).catch(() => {});
+		actionError.value = /reconnect/i.test(error.message)
+			? t('storage.googlePhotosReconnect')
+			: error.message;
+	}
 }
 
 async function reconnectAccount(account) {
@@ -538,6 +651,15 @@ onMounted(async () => {
 	await loadPage();
 	await handleOAuthRedirect();
 });
+
+onBeforeUnmount(() => {
+	for (const [accountId, watch] of photoImportWatches) {
+		if (photoImports.value[accountId]?.status === 'waiting_for_selection') {
+			api.cancelGooglePhotosImport(watch.importId).catch(() => {});
+		}
+		stopPhotoImportWatch(accountId);
+	}
+});
 </script>
 
 <template>
@@ -653,7 +775,15 @@ onMounted(async () => {
 							<span class="font-medium" :class="account.palette.text">{{ formatBytesStrict(account.free) }} {{ t('storage.empty') }}</span>
 						</div>
 
-						<div class="mt-4 flex items-center justify-between gap-3">
+						<div v-if="account.provider === 'google_drive' && photoImports[account.id]" class="mt-3 rounded-2xl bg-[#e8f0fe] px-3 py-2 text-xs text-[#1a73e8] dark:bg-sky-950/30 dark:text-sky-300">
+							<p>{{ photoImportMessage(photoImports[account.id]) }}</p>
+							<p v-if="isPhotoImportActive(account.id)" class="mt-1 text-[#5f6368] dark:text-slate-400">{{ t('storage.googlePhotosImportCounts', photoImports[account.id]) }}</p>
+						</div>
+
+						<div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+							<button v-if="account.provider === 'google_drive' && account.status === 'active'" type="button" class="inline-flex h-10 items-center gap-2 rounded-full border border-[#c7dafc] bg-white px-4 text-[#1a73e8] disabled:opacity-60 dark:border-sky-900/50 dark:bg-slate-800 dark:text-sky-300" :disabled="isPhotoImportActive(account.id)" @click="startGooglePhotosImport(account)">
+								<span>{{ t('storage.importGooglePhotos') }}</span>
+							</button>
 							<button type="button" class="inline-flex h-10 items-center gap-2 rounded-full border bg-white px-4 disabled:opacity-60 dark:bg-slate-800" :class="isReconnectable(account)
 								? 'border-[#c7dafc] text-[#1a73e8] dark:border-sky-900/50 dark:text-sky-300'
 								: 'border-[#f3c7c4] text-[#c5221f] dark:border-red-900/50 dark:text-red-300'" :disabled="isAccountActionBusy(account)" @click="handleAccountAction(account)">

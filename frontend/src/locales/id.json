@@ -375,7 +375,16 @@
 		"noAccounts": "Belum ada akun terhubung.",
 		"reconnectNotSupported": "Provider {provider} belum mendukung reconnect otomatis.",
 		"connectSuccess": "Akun {provider} berhasil terhubung.",
-		"connectFailed": "Gagal menghubungkan akun {provider}."
+		"connectFailed": "Gagal menghubungkan akun {provider}.",
+		"importGooglePhotos": "Impor dari Google Foto",
+		"waitingGooglePhotos": "Menunggu pilihan Google Foto Anda...",
+		"importingGooglePhotos": "Mengimpor {completed} dari {total}...",
+		"googlePhotosImportComplete": "Berhasil mengimpor {count} item.",
+		"googlePhotosImportPartial": "Berhasil mengimpor {completed}; {failed} gagal.",
+		"googlePhotosReconnect": "Sambungkan kembali akun Google Drive ini untuk mengizinkan Google Photos Picker.",
+		"googlePhotosCancelled": "Impor Google Foto dibatalkan.",
+		"googlePhotosImportCounts": "{total} dipilih · {completed} selesai · {failed} gagal",
+		"googlePhotosPopupBlocked": "Izinkan pop-up untuk mengimpor dari Google Foto."
 	},
 	"allocation": {
 		"title": "Alokasi penyimpanan",

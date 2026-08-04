@@ -140,6 +140,15 @@ export const api = {
 	getGoogleConnectUrl() {
 		return request('/accounts/google/connect');
 	},
+	startGooglePhotosImport(accountId) {
+		return request(`/accounts/google/${encodeURIComponent(accountId)}/photos/imports`, { method: 'POST' });
+	},
+	getGooglePhotosImport(importId) {
+		return request(`/accounts/google/photos/imports/${encodeURIComponent(importId)}`);
+	},
+	cancelGooglePhotosImport(importId) {
+		return request(`/accounts/google/photos/imports/${encodeURIComponent(importId)}`, { method: 'DELETE' });
+	},
 	getOneDriveIntegrationStatus() {
 		return request('/accounts/onedrive/status');
 	},

@@ -59,20 +59,22 @@ Sign in with the Google account that will own the OAuth app.
 3. Name it, for example `OmniCloud Local`.
 4. Open the project.
 
-### 3. Enable the Google Drive API
+### 3. Enable the Google Drive and Google Photos Picker APIs
 
 1. Go to **APIs & Services** → **Library**.
 2. Search for **Google Drive API**.
 3. Open it.
 4. Click **Enable**.
+5. Return to the library, search for **Google Photos Picker API**, and click **Enable**.
 
 ### 4. Configure the OAuth consent screen
 
 1. Go to **APIs & Services** → **OAuth consent screen**.
 2. Choose **External** for personal/local use unless you are using a Google Workspace internal app.
 3. Fill the required app information.
-4. Add yourself as a test user if the app is in testing mode.
-5. Save the consent screen.
+4. Add `https://www.googleapis.com/auth/photospicker.mediaitems.readonly` to the OAuth scopes.
+5. Add yourself as a test user if the app is in testing mode.
+6. Save the consent screen.
 
 ### 5. Create OAuth client credentials
 
@@ -104,6 +106,8 @@ GOOGLE_REDIRECT_URI=http://localhost:8787/api/accounts/google/callback
 
 - The redirect URI must match exactly.
 - If the OAuth app is in testing mode, only test users can connect.
+- Keep the existing Google redirect URI unchanged. Reconnect existing OmniCloud Google Drive accounts once to grant the Google Photos Picker scope.
+- Google Photos Picker imports only the images and videos the user selects; it does not expose the full Google Photos library.
 - Do not commit `.env`.
 
 ## OneDrive
