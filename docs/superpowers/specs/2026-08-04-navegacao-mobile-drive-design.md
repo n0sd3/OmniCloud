@@ -77,14 +77,14 @@ Decisão explícita: **não há modo de seleção múltipla no telefone.** O men
 
 ## Testes
 
-O projeto não tem runner (`npm test` = `exit 1`). Adicionar vitest como devDependency do workspace `frontend`, com um único arquivo cobrindo as funções puras de path:
+O workspace `frontend` já roda `node --test "test/*.test.js"` com testes em `node:test` — nenhuma dependência nova. Um arquivo novo, `frontend/test/drivePath.test.js`, no mesmo estilo dos existentes, cobrindo as funções puras de path:
 
 - raiz nos dois sentidos (`'/'` ↔ `[]`);
 - ida e volta de caminho profundo;
 - nome com espaço e com acento;
 - barras duplicadas e ausência de barra final normalizam para a mesma coisa.
 
-Sem testes de componente, sem jsdom, sem fixtures.
+Sem testes de componente, sem jsdom, sem fixtures. As funções ficam em `src/utils/drivePath.js` para o teste não arrastar o router junto com o store.
 
 Verificação manual antes de entregar, em viewport mobile: entrar em pasta com um toque, voltar pelo botão do navegador, F5 mantendo a pasta, abrir link direto de subpasta, long-press abrindo o menu, tocar em arquivo abrindo preview, e conferir que não há scroll horizontal na lista.
 
@@ -93,7 +93,8 @@ Verificação manual antes de entregar, em viewport mobile: entrar em pasta com 
 | Arquivo | Mudança |
 |---|---|
 | `frontend/src/router/index.js` | rota `my-drive` aceita `:segments(.*)*` |
-| `frontend/src/stores/fileTree.js` | `pathToSegments`/`segmentsToPath`, `navigate` via router, remove `pendingPath` |
+| `frontend/src/utils/drivePath.js` | novo — `pathToSegments`/`segmentsToPath` |
+| `frontend/src/stores/fileTree.js` | `navigate` via router, remove `pendingPath` |
 | `frontend/src/views/MyDriveView.vue` | watcher de rota, breadcrumb responsivo, remove carga do `onMounted` |
 | `frontend/src/components/DriveShell.vue` | `openSearchResult` usa `navigate` |
 | `frontend/src/views/StarredView.vue` | idem |
@@ -102,7 +103,8 @@ Verificação manual antes de entregar, em viewport mobile: entrar em pasta com 
 | `frontend/src/components/FileListGridCard.vue` | tap abre em touch, callout off |
 | `frontend/src/components/FileListSurface.vue` | `min-w`/overflow só a partir de `sm` |
 | `frontend/src/components/FileListHeader.vue` | `hidden sm:grid` |
-| `frontend/package.json` + teste | vitest e teste das funções de path |
+| `frontend/test/drivePath.test.js` | novo — teste das funções de path |
+| `frontend/src/locales/{en,id}.json` | chave `common.back` para o botão de voltar do breadcrumb |
 
 ## Riscos
 

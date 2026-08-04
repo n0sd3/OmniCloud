@@ -147,8 +147,8 @@ defineExpose({ renderCount });
 		<div class="grid gap-4" :class="isInspectorOpen ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : 'grid-cols-1'">
 			<div class="min-w-0">
 				<div v-if="!isGridView" class="relative flex flex-col" :class="fillHeight ? 'flex-1' : ''">
-					<div class="custom-scrollbar flex flex-col overflow-x-auto rounded-2xl border border-[#e0e3e7] bg-white dark:border-slate-700 dark:bg-slate-800" :class="fillHeight ? 'flex-1' : ''">
-						<div class="flex min-w-[760px] flex-col" :class="fillHeight ? 'flex-1' : ''">
+					<div class="custom-scrollbar flex flex-col sm:overflow-x-auto rounded-2xl border border-[#e0e3e7] bg-white dark:border-slate-700 dark:bg-slate-800" :class="fillHeight ? 'flex-1' : ''">
+						<div class="flex flex-col sm:min-w-[760px]" :class="fillHeight ? 'flex-1' : ''">
 							<div class="custom-scrollbar overflow-y-auto overflow-x-hidden" :class="fillHeight ? 'min-h-0 flex-1' : listMaxHeightClass" @scroll="handleListScroll">
 								<FileListHeader :sortable="sortable" :sort-by="sortBy" :sort-direction="sortDirection" @sort="setSort" />
 

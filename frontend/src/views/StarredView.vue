@@ -1,6 +1,5 @@
 <script setup>
 import { storeToRefs } from 'pinia';
-import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { IconFolder } from '@tabler/icons-vue';
 import DriveShell from '../components/DriveShell.vue';
@@ -14,7 +13,6 @@ import { useUploadQueueStore } from '../stores/uploadQueue';
 import { api } from '../services/api';
 
 const { t } = useI18n();
-const router = useRouter();
 const fileTreeStore = useFileTreeStore();
 const uploadQueueStore = useUploadQueueStore();
 const { uploads, totalProgress } = storeToRefs(uploadQueueStore);
@@ -47,8 +45,7 @@ function openFolder(file) {
 	const parent = file.virtual_path || '/';
 	const inside = `${parent === '/' ? '' : parent}${file.file_name}/`;
 	const targetPath = inside.startsWith('/') ? inside : `/${inside}`;
-	fileTreeStore.pendingPath = targetPath;
-	router.push({ path: '/my-drive' });
+	fileTreeStore.navigate(targetPath);
 }
 
 function openSelectedItem() {

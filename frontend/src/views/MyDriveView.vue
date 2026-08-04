@@ -1,8 +1,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { IconChevronRight, IconFolder } from '@tabler/icons-vue';
+import { IconChevronLeft, IconChevronRight, IconFolder } from '@tabler/icons-vue';
 import DriveShell from '../components/DriveShell.vue';
 import MegaLinkModal from '../components/MegaLinkModal.vue';
 import FloatingProgressToast from '../components/FloatingProgressToast.vue';
@@ -12,11 +13,13 @@ import { getPreviewType } from '../composables/useFileType.js';
 import { useAutoRefresh } from '../composables/useAutoRefresh.js';
 import { useTrackedFileActions } from '../composables/useTrackedFileActions.js';
 import { useFileTreeStore } from '../stores/fileTree';
+import { segmentsToPath } from '../utils/drivePath';
 import { useUploadQueueStore } from '../stores/uploadQueue';
 import { api } from '../services/api';
 
 const { t } = useI18n();
 
+const route = useRoute();
 const fileTreeStore = useFileTreeStore();
 const uploadQueueStore = useUploadQueueStore();
 const { currentPath, breadcrumbs, searchTerm, isLoading } = storeToRefs(fileTreeStore);
@@ -59,6 +62,20 @@ const {
 
 watch(searchTerm, (term) => {
 	fileTreeStore.applySearch(term);
+});
+
+// A rota manda: entrar em pasta, breadcrumb e o botao voltar do sistema passam todos por aqui.
+watch(
+	() => route.params.segments,
+	(segments) => fileTreeStore.loadFiles(segmentsToPath(segments)),
+	{ immediate: true },
+);
+
+const parentCrumb = computed(() => breadcrumbs.value.at(-2) || null);
+const currentCrumbLabel = computed(() => {
+	const crumb = breadcrumbs.value.at(-1);
+	if (!crumb || crumb.label === 'Root') return t('drive.title');
+	return crumb.label;
 });
 
 watch(() => fileTreeStore.files, consumePendingHighlight, { flush: 'post' });
@@ -306,11 +323,7 @@ function handleVisibilityChange() {
 	}
 }
 
-onMounted(async () => {
-	const initialPath = fileTreeStore.pendingPath || '/';
-	fileTreeStore.pendingPath = null;
-	await fileTreeStore.loadFiles(initialPath);
-	consumePendingHighlight();
+onMounted(() => {
 	window.addEventListener('dragend', resetDragState);
 	window.addEventListener('drop', resetDragState);
 	window.addEventListener('blur', resetDragState);
@@ -332,10 +345,16 @@ onBeforeUnmount(() => {
 		<div class="contents" @dragenter.prevent="handleDragEnter" @dragover.prevent="handleDragEnter" @dragleave.prevent="handleDragLeave" @drop.prevent="handleDrop">
 			<FileListSurface ref="surfaceRef" :view="view" :loading="isLoading" :empty-message="t('drive.noFiles')" name-field="display_name" fill-height sortable :highlighted-file-id="highlightedFileId" @open="openItemOnDoubleClick" @open-selected="openSelectedItem">
 				<template #header>
-					<nav aria-label="Breadcrumb" class="m-0 flex flex-wrap items-center gap-1 text-2xl font-normal text-[#202124] dark:text-slate-100">
+					<nav aria-label="Breadcrumb" class="m-0 flex min-w-0 items-center gap-1 text-2xl font-normal text-[#202124] dark:text-slate-100">
+						<!-- Telefone: so o passo para o pai e a pasta atual, senao a trilha quebra em varias linhas. -->
+						<button v-if="parentCrumb" type="button" class="-ml-2 grid size-9 shrink-0 place-items-center rounded-full text-[#5f6368] transition hover:bg-black/5 dark:text-slate-400 dark:hover:bg-white/10 sm:hidden" :aria-label="t('common.back')" @click="fileTreeStore.navigate(parentCrumb.path)">
+							<IconChevronLeft :size="22" :stroke="2" />
+						</button>
+						<span class="truncate sm:hidden">{{ currentCrumbLabel }}</span>
+
 						<template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
-							<button type="button" class="max-w-[220px] truncate text-left transition hover:text-[#1a73e8] dark:hover:text-sky-300" @click="fileTreeStore.navigate(crumb.path)">{{ crumb.label === 'Root' ? t('drive.title') : crumb.label }}</button>
-							<IconChevronRight v-if="index < breadcrumbs.length - 1" :size="18" :stroke="2" class="mx-1 text-[#5f6368] dark:text-slate-400" />
+							<button type="button" class="hidden max-w-[220px] truncate text-left transition hover:text-[#1a73e8] dark:hover:text-sky-300 sm:block" @click="fileTreeStore.navigate(crumb.path)">{{ crumb.label === 'Root' ? t('drive.title') : crumb.label }}</button>
+							<IconChevronRight v-if="index < breadcrumbs.length - 1" :size="18" :stroke="2" class="mx-1 hidden text-[#5f6368] dark:text-slate-400 sm:block" />
 						</template>
 					</nav>
 				</template>

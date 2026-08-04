@@ -28,7 +28,7 @@ function indicatorFor(field) {
 </script>
 
 <template>
-	<div class="sticky top-0 z-10 grid min-h-11 grid-cols-[minmax(260px,2fr)_minmax(180px,1.1fr)_minmax(150px,1fr)_140px] items-center gap-3 border-b border-[#e8eaed] bg-[#f8fafd]/95 px-[18px] text-[13px] text-[#5f6368] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-400">
+	<div class="sticky top-0 z-10 hidden min-h-11 sm:grid grid-cols-[minmax(260px,2fr)_minmax(180px,1.1fr)_minmax(150px,1fr)_140px] items-center gap-3 border-b border-[#e8eaed] bg-[#f8fafd]/95 px-[18px] text-[13px] text-[#5f6368] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-400">
 		<template v-if="sortable">
 			<button type="button" class="flex items-center gap-1 text-left hover:text-[#1a73e8]" @click="handleSort('file_name')">
 				<span>{{ t('drive.sortByName') }}</span>

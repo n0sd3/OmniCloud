@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia';
+import router from '../router';
 import { api } from '../services/api';
+import { pathToSegments } from '../utils/drivePath';
 
 function buildBreadcrumbs(currentPath) {
 	const normalized = currentPath === '/' ? '/' : currentPath.replace(/^\/+|\/+$/g, '');
@@ -23,7 +25,6 @@ function buildBreadcrumbs(currentPath) {
 export const useFileTreeStore = defineStore('fileTree', {
 	state: () => ({
 		currentPath: '/',
-		pendingPath: null,
 		pendingHighlightId: null,
 		files: [],
 		filteredFiles: [],
@@ -58,7 +59,7 @@ export const useFileTreeStore = defineStore('fileTree', {
 				);
 		},
 		navigate(path) {
-			return this.loadFiles(path);
+			return router.push({ name: 'my-drive', params: { segments: pathToSegments(path) } });
 		},
 	},
 });

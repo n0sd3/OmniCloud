@@ -122,15 +122,7 @@ async function openSearchResult(item) {
 	const targetPath = getItemPath(item);
 	clearGlobalSearch();
 	fileTreeStore.pendingHighlightId = item.is_folder ? null : item.id;
-
-	if (router.currentRoute.value.name === 'my-drive') {
-		fileTreeStore.pendingPath = null;
-		await fileTreeStore.navigate(targetPath);
-		return;
-	}
-
-	fileTreeStore.pendingPath = targetPath;
-	await router.push({ name: 'my-drive' });
+	await fileTreeStore.navigate(targetPath);
 }
 
 function toggleCreateMenu() {

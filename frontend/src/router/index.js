@@ -31,7 +31,7 @@ const router = createRouter({
 			component: HomeView,
 		},
 		{
-			path: '/my-drive',
+			path: '/my-drive/:segments(.*)*',
 			name: 'my-drive',
 			component: MyDriveView,
 		},
