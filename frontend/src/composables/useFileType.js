@@ -14,6 +14,7 @@ import {
 	IconVideo,
 	IconVideoFilled,
 } from '@tabler/icons-vue';
+import { extensionOf, previewTypeFor, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS } from '@omnicloud/shared';
 
 const ICON_FACTORY = {
 	folder: { filled: IconFolderFilled, outline: IconFolder },
@@ -26,34 +27,23 @@ const ICON_FACTORY = {
 	all: { filled: IconFileDescriptionFilled, outline: IconFileDescription },
 };
 
-const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
-const VIDEO_EXTENSIONS = new Set(['avi', 'm4v', 'mkv', 'mov', 'mp4', 'webm']);
-const AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav']);
 const DOCUMENT_EXTENSIONS = new Set(['csv', 'doc', 'docx', 'json', 'odp', 'ods', 'odt', 'pdf', 'ppt', 'pptx', 'txt', 'xls', 'xlsx']);
-const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'odp', 'ods', 'odt', 'ppt', 'pptx', 'xls', 'xlsx']);
-const TEXT_EXTENSIONS = new Set(['csv', 'json', 'log', 'md', 'txt', 'xml', 'yaml', 'yml']);
 
 // Nativos do Google chegam pela rota de preview ja convertidos (Docs viram PDF,
 // Sheets/Slides viram Office e o backend converte para PDF, Drawings viram PNG,
 // Scripts viram JSON).
 const GOOGLE_PREVIEW_TYPES = {
 	'application/vnd.google-apps.document': 'pdf',
-	'application/vnd.google-apps.spreadsheet': 'pdf',
-	'application/vnd.google-apps.presentation': 'pdf',
+	'application/vnd.google-apps.spreadsheet': 'office',
+	'application/vnd.google-apps.presentation': 'office',
 	'application/vnd.google-apps.drawing': 'image',
 	'application/vnd.google-apps.script': 'text',
 };
 
-function getFileExtension(file) {
-	const source = file.display_name || file.file_name || '';
-	const parts = source.toLowerCase().split('.');
-	return parts.length > 1 ? parts.at(-1) : '';
-}
-
 export function getFileCategory(file) {
 	if (file.is_folder) return 'folder';
 	const mimeType = (file.mime_type || file.mimeType || '').toLowerCase();
-	const extension = getFileExtension(file);
+	const extension = extensionOf(file.display_name || file.file_name || '');
 
 	if (mimeType.startsWith('image/') || IMAGE_EXTENSIONS.has(extension)) return 'image';
 	if (mimeType.startsWith('video/') || VIDEO_EXTENSIONS.has(extension)) return 'video';
@@ -91,22 +81,7 @@ export function getPreviewType(file) {
 	const mimeType = (file.mime_type || file.mimeType || '').toLowerCase();
 	if (GOOGLE_PREVIEW_TYPES[mimeType]) return GOOGLE_PREVIEW_TYPES[mimeType];
 
-	const extension = getFileExtension(file);
-	if (mimeType.startsWith('image/') || IMAGE_EXTENSIONS.has(extension)) return 'image';
-	if (mimeType.startsWith('video/') || VIDEO_EXTENSIONS.has(extension)) return 'video';
-	if (mimeType.startsWith('audio/') || AUDIO_EXTENSIONS.has(extension)) return 'audio';
-	if (mimeType === 'application/pdf' || extension === 'pdf') return 'pdf';
-	if (
-		OFFICE_EXTENSIONS.has(extension)
-		|| mimeType.includes('officedocument')
-		|| mimeType.includes('opendocument')
-		|| mimeType.includes('msword')
-		|| mimeType.includes('ms-excel')
-		|| mimeType.includes('ms-powerpoint')
-	) return 'pdf';
-	if (mimeType.startsWith('text/') || mimeType === 'application/json' || TEXT_EXTENSIONS.has(extension)) return 'text';
-
-	return null;
+	return previewTypeFor({ mimeType, extension: extensionOf(file.display_name || file.file_name || '') });
 }
 
 export function canShowGridThumbnail(file) {

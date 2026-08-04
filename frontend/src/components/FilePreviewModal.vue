@@ -112,7 +112,7 @@ function onWheelZoom(event) {
 					</audio>
 				</div>
 
-				<iframe v-else-if="props.file?.previewType === 'pdf'" :src="props.file?.previewUrl" class="h-[75vh] w-full border-0" :title="t('preview.document')" @load="emit('loaded')" />
+				<iframe v-else-if="props.file?.previewType === 'pdf' || props.file?.previewType === 'office'" :src="props.file?.previewUrl" class="h-[75vh] w-full border-0" :title="t('preview.document')" @load="emit('loaded')" />
 
 				<pre v-else-if="props.file?.previewType === 'text'" class="h-[75vh] w-full overflow-auto whitespace-pre-wrap break-words px-5 py-4 font-mono text-xs leading-relaxed">{{ props.previewText }}</pre>
 

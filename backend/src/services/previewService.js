@@ -6,12 +6,7 @@ import { promisify } from 'node:util';
 import { env } from '../config/env.js';
 import { googleDocsExport } from '../utils/mime.js';
 import { officeToPdf, writeStreamToFile } from './fileConvert.js';
-
-const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.heic', '.jpeg', '.jpg', '.png', '.svg', '.webp']);
-const VIDEO_EXTENSIONS = new Set(['.avi', '.m4v', '.mkv', '.mov', '.mp4', '.webm']);
-const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav']);
-const OFFICE_EXTENSIONS = new Set(['.doc', '.docx', '.odp', '.ods', '.odt', '.ppt', '.pptx', '.xls', '.xlsx']);
-const TEXT_EXTENSIONS = new Set(['.csv', '.json', '.log', '.md', '.txt', '.xml', '.yaml', '.yml']);
+import { previewTypeFor } from '@omnicloud/shared';
 
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 // Conversao completa para PDF e mais pesada que gerar uma capa: 60s contra os 30s
@@ -35,22 +30,7 @@ export function effectivePreviewSource(file) {
 export function getPreviewKind(file) {
 	if (!file || file.is_folder) return null;
 	const { mimeType, extension } = effectivePreviewSource(file);
-
-	if (mimeType.startsWith('image/') || IMAGE_EXTENSIONS.has(extension)) return 'image';
-	if (mimeType.startsWith('video/') || VIDEO_EXTENSIONS.has(extension)) return 'video';
-	if (mimeType.startsWith('audio/') || AUDIO_EXTENSIONS.has(extension)) return 'audio';
-	if (mimeType === 'application/pdf' || extension === '.pdf') return 'pdf';
-	if (
-		OFFICE_EXTENSIONS.has(extension)
-		|| mimeType.includes('officedocument')
-		|| mimeType.includes('opendocument')
-		|| mimeType.includes('msword')
-		|| mimeType.includes('ms-excel')
-		|| mimeType.includes('ms-powerpoint')
-	) return 'office';
-	if (mimeType.startsWith('text/') || mimeType === 'application/json' || TEXT_EXTENSIONS.has(extension)) return 'text';
-
-	return null;
+	return previewTypeFor({ mimeType, extension });
 }
 
 export function getPreviewCacheKey(userId, file) {
