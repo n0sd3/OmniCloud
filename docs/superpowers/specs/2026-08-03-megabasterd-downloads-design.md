@@ -16,7 +16,7 @@ Add a `megabasterd` Docker service that runs without a graphical environment and
 
 The Express backend remains the sole public entry point. A new `megaDownloadService` requests streams from the sidecar and falls back once to `megajs` when the sidecar fails before returning a successful response. The existing file cache, preview, WebDAV, and browser-download flows continue to consume a Node readable stream and do not need provider-specific branches.
 
-The sidecar and backend authenticate with a required shared secret. The sidecar publishes no host port, stores no OmniCloud user data, and does not log credentials, file keys, or complete MEGA links. This process boundary is intended to keep the derived GPL component separate from the MIT application, but it is not a legal determination about distribution obligations.
+The sidecar and backend authenticate with a required shared secret. The sidecar publishes no host port, stores no OmniCloud user data, and does not log signed transfer URLs, file keys, or complete MEGA links. This process boundary is intended to keep the derived GPL component separate from the MIT application, but it is not a legal determination about distribution obligations.
 
 ## Headless service contract
 
@@ -24,9 +24,9 @@ The internal service provides:
 
 - `GET /health`: reports readiness without exposing configuration or credentials.
 - `POST /inspect`: accepts a public MEGA link and returns normalized `file_name`, `size`, and `mime_type` metadata.
-- `POST /stream`: accepts either a public link or a private account-and-node request and returns the decrypted file body. It honors a normalized byte range when one is supplied.
+- `POST /stream`: accepts either a public link or a private resolved-transfer request and returns the decrypted file body. It honors a normalized byte range when one is supplied.
 
-Private requests contain only the credentials and node information required for that request. Values live in memory for the request lifetime and are discarded afterward. Public requests accept only canonical MEGA file links; folder links are rejected in the first version because OmniCloud's direct-download endpoint represents one file.
+For a private file, `megajs` uses the connected account session only to resolve the node into MEGA's short-lived signed transfer URL and its file key; it does not transfer file bytes on the primary path. The backend passes that URL, key, size, and safe filename to the sidecar. Values live in memory for the request lifetime and are discarded afterward. This avoids sending account passwords or stale one-time 2FA codes to the sidecar. Public requests accept only canonical MEGA file links; folder links are rejected in the first version because OmniCloud's direct-download endpoint represents one file.
 
 The service stops active work when the HTTP client disconnects. It returns structured error codes for invalid input, authentication failure, missing files, invalid MEGA credentials, quota exhaustion, unsupported links, and internal failures.
 
@@ -48,7 +48,7 @@ Client cancellation, invalid input, invalid credentials, missing files, and MEGA
 
 ### Private files
 
-`MegaAdapter.getDownloadStream(file, range)` delegates to `megaDownloadService`. The adapter supplies the decrypted account context and remote node identifier. The fallback reuses the adapter's existing `megajs` storage session and supports the requested range.
+`MegaAdapter.getDownloadStream(file, range)` delegates to `megaDownloadService`. The adapter resolves its existing `megajs` file object into a signed ciphertext URL and file key, then supplies those values to the sidecar. The fallback reuses that file object's existing `megajs` download stream and supports the requested range.
 
 This changes the byte source only. File listing and mutation methods stay unchanged.
 
@@ -85,7 +85,7 @@ The modal validates that a value looks like an HTTPS MEGA link for immediate fee
 - Mid-stream failure destroys the response or upload stream and records the operation as failed.
 - User cancellation aborts both the internal HTTP request and its MegaBasterd work.
 - Health output reports sidecar availability and whether fallback is enabled, without secrets.
-- Logs record the mechanism, operation type, timing, fallback decision, and safe error code. They exclude credentials, keys, and full URLs.
+- Logs record the mechanism, operation type, timing, fallback decision, and safe error code. They exclude signed transfer URLs, keys, credentials, and full public links.
 
 ## Deployment and licensing
 
