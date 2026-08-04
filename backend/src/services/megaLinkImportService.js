@@ -140,7 +140,7 @@ export function createMegaLinkImportService({
 					virtual_path: destination,
 					remote_parent_id: null,
 					cloud_account_id: allocation.selected.id,
-					fallback_chain: allocation.fallbackChain.map(({ id }) => id),
+					fallback_chain: [],
 				});
 			} catch (error) {
 				destinations.delete(destinationKey);
@@ -180,7 +180,6 @@ export function createMegaLinkImportService({
 			job.controller.abort();
 			if (job.stream) job.stream.destroy(abortError());
 			if (!job.uploadStarted) failBeforeUpload(job, 'MEGA import cancelled');
-			releaseJob(job);
 			return true;
 		},
 	};

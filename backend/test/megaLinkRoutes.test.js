@@ -211,7 +211,7 @@ test('import uses the submitted current path and allocation result', async () =>
 			virtual_path: '/current/folder/',
 			remote_parent_id: null,
 			cloud_account_id: 'account-2',
-			fallback_chain: ['account-3'],
+			fallback_chain: [],
 		});
 		await waitFor(() => streamLink === CANONICAL_LINK);
 	} finally {
@@ -455,6 +455,7 @@ test('import releases capacity reservations after success, failure, and cancella
 	const job = await cancelled.start('u1', { link: LINK, virtualPath: '/' });
 	await waitFor(() => Boolean(pendingSource));
 	assert.equal(await cancelled.cancel('u1', job.upload_id), true);
+	await waitFor(() => released.includes('reservation-3'));
 	assert.ok(released.includes('reservation-3'));
 	assert.equal(released.filter((id) => id === 'reservation-3').length, 1);
 });
@@ -530,6 +531,96 @@ test('allocation reservations prevent concurrent overcommit, release, and exclud
 		() => reserveBestAccount(userId, 1, { excludeProviders: ['base', 'pcloud'] }),
 		(error) => error.code === 'NO_STREAMING_DESTINATION',
 	);
+});
+
+test('concurrent imports never expose another reserved account as provider fallback', async () => {
+	let index = 0;
+	const sessions = [];
+	const selected = [
+		{ selected: { id: 'primary-a' }, fallbackChain: [{ id: 'primary-b' }], reservationId: 'reserve-a' },
+		{ selected: { id: 'primary-b' }, fallbackChain: [{ id: 'primary-a' }], reservationId: 'reserve-b' },
+	];
+	const service = createMegaLinkImportService({
+		downloads: {
+			inspectPublic: async () => ({ file_name: `concurrent-${index + 1}.bin`, size: 5, mime_type: 'application/octet-stream' }),
+			streamPublic: async () => Readable.from(['hello']),
+		},
+		reserveAccount: () => selected[index++],
+		releaseReservation: () => true,
+		listFiles: () => [],
+		createSession: (payload) => ({ id: `fallback-${sessions.length + 1}`, ...payload }),
+		beginUpload: () => {},
+		upload: async ({ session, stream }) => {
+			sessions.push(session);
+			for await (const _chunk of stream) { /* consume */ }
+			if (session.cloud_account_id === 'primary-a') throw new Error('primary a failed');
+		},
+	});
+
+	await Promise.all([
+		service.start('u1', { link: LINK, virtualPath: '/a' }),
+		service.start('u1', { link: LINK, virtualPath: '/b' }),
+	]);
+	await waitFor(() => sessions.length === 2);
+	assert.deepEqual(sessions.map((session) => ({
+		account: session.cloud_account_id,
+		fallback: session.fallback_chain,
+	})), [
+		{ account: 'primary-a', fallback: [] },
+		{ account: 'primary-b', fallback: [] },
+	]);
+});
+
+test('cancel keeps capacity reserved until the active uploader settles', async () => {
+	const userId = 'mega-cancel-reservation-user';
+	db.prepare("INSERT INTO users (id, email, password_hash) VALUES (?, ?, '')")
+		.run(userId, 'mega-cancel-reservation@example.com');
+	db.prepare(`
+		INSERT INTO cloud_accounts (
+			id, user_id, email, provider, encrypted_credentials,
+			total_space, used_space, status
+		) VALUES ('cancel-capacity', ?, 'cancel-capacity@example.com', 'base', '', 10, 0, 'active')
+	`).run(userId);
+	let source;
+	let settleUpload;
+	const service = createMegaLinkImportService({
+		downloads: {
+			inspectPublic: async () => ({ file_name: 'cancel-capacity.bin', size: 8, mime_type: 'application/octet-stream' }),
+			streamPublic: async () => {
+				source = new Readable({ read() {} });
+				return source;
+			},
+		},
+		listFiles: () => [],
+		createSession: (payload) => ({ id: 'cancel-capacity-upload', ...payload }),
+		beginUpload: () => {},
+		upload: async ({ stream }) => new Promise((resolve, reject) => {
+			settleUpload = () => reject(new Error('cancelled uploader settled'));
+			stream.once('error', () => {});
+			stream.resume();
+		}),
+	});
+	const job = await service.start(userId, { link: LINK, virtualPath: '/' });
+	await waitFor(() => Boolean(settleUpload));
+	assert.equal(await service.cancel(userId, job.upload_id), true);
+	assert.equal(source.destroyed, true);
+	assert.throws(
+		() => reserveBestAccount(userId, 3, { excludeProviders: ['pcloud'] }),
+		(error) => error.code === 'NO_SPACE',
+	);
+
+	settleUpload();
+	let nextReservation;
+	await waitFor(() => {
+		try {
+			nextReservation = reserveBestAccount(userId, 3, { excludeProviders: ['pcloud'] });
+			return true;
+		} catch {
+			return false;
+		}
+	});
+	assert.equal(nextReservation.selected.id, 'cancel-capacity');
+	releaseAccountReservation(nextReservation.reservationId);
 });
 
 test('unsatisfiable download range returns 416 without opening a stream', async () => {
