@@ -576,6 +576,64 @@ test('cancelling an active import aborts transfers before returning and skips sy
 	assert.equal((await service.get('u1', started.id)).completed, 0);
 });
 
+test('concurrent cancellations share active transfer settlement and Picker cleanup', async () => {
+	const items = [mediaItem('cancel-twice', 'cancel-twice.jpg', 'image/jpeg')];
+	let releaseCleanup;
+	const cleanup = new Promise((resolve) => { releaseCleanup = resolve; });
+	let cleanupStarted;
+	const startedCleanup = new Promise((resolve) => { cleanupStarted = resolve; });
+	let cleanupCalls = 0;
+	let uploadStarted;
+	const startedUpload = new Promise((resolve) => { uploadStarted = resolve; });
+	const pickerRequest = readyPickerRequest(items, async () => ({ data: Readable.from(['bytes']) }));
+	const request = (options) => {
+		if (options.method === 'DELETE') {
+			cleanupCalls += 1;
+			cleanupStarted();
+			return cleanup;
+		}
+		return pickerRequest(options);
+	};
+	const adapter = {
+		createOAuthClient: () => ({ request }),
+		ensureRemotePath: async () => 'folder-1',
+		listFileNames: async () => [],
+		uploadStream: ({ signal }) => new Promise((_resolve, reject) => {
+			uploadStarted();
+			signal.addEventListener('abort', () => {
+				reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+			}, { once: true });
+		}),
+	};
+	const service = createTestService({ adapter, sync: async () => { throw new Error('must not sync'); } });
+	const started = await service.start('u1', 'drive-1');
+	await service.refresh('u1', started.id);
+	await startedUpload;
+
+	let firstResolved = false;
+	let secondResolved = false;
+	const firstCancel = service.cancel('u1', started.id).then((job) => {
+		firstResolved = true;
+		return job;
+	});
+	await startedCleanup;
+	const secondCancel = service.cancel('u1', started.id).then((job) => {
+		secondResolved = true;
+		return job;
+	});
+	await waitTurns();
+
+	assert.equal(firstResolved, false);
+	assert.equal(secondResolved, false);
+	assert.equal(cleanupCalls, 1);
+
+	releaseCleanup({ data: {} });
+	const [first, second] = await Promise.all([firstCancel, secondCancel]);
+	assert.deepEqual(second, first);
+	assert.equal(first.status, 'cancelled');
+	assert.equal(cleanupCalls, 1);
+});
+
 test('delayed auth failure destroys a second worker response stream before stopping', async () => {
 	const items = [
 		mediaItem('expired-delayed', 'expired.jpg', 'image/jpeg'),

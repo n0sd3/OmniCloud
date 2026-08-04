@@ -288,6 +288,7 @@ export function createGooglePhotosImportService({
 			controllers: new Set(),
 			streams: new Set(),
 			released: false,
+			cancelPromise: null,
 		};
 		jobs.set(job.id, job);
 		return sanitizeJob(job);
@@ -336,19 +337,26 @@ export function createGooglePhotosImportService({
 		return sanitizeJob(getJob(userId, importId));
 	}
 
-	async function cancelJob(job) {
-		if (['completed', 'completed_with_errors', 'failed'].includes(job.status)) return sanitizeJob(job);
-		if (job.status === 'cancelled') return sanitizeJob(job);
-		job.status = 'cancelled';
-		abortTransfers(job);
-		const activeImport = job.promise;
-		if (activeImport) await activeImport;
-		else {
-			await deletePickerSession(job);
-			emitJobEvent(job, 'photos-import:complete');
-			if (!job.refreshPromise) releaseTerminalJob(job);
+	function cancelJob(job) {
+		if (['completed', 'completed_with_errors', 'failed'].includes(job.status)) {
+			return Promise.resolve(sanitizeJob(job));
 		}
-		return sanitizeJob(job);
+		if (job.cancelPromise) return job.cancelPromise;
+		if (job.status === 'cancelled') return Promise.resolve(sanitizeJob(job));
+
+		job.cancelPromise = (async () => {
+			job.status = 'cancelled';
+			abortTransfers(job);
+			const activeImport = job.promise;
+			if (activeImport) await activeImport;
+			else {
+				await deletePickerSession(job);
+				emitJobEvent(job, 'photos-import:complete');
+				if (!job.refreshPromise) releaseTerminalJob(job);
+			}
+			return sanitizeJob(job);
+		})();
+		return job.cancelPromise;
 	}
 
 	function cancel(userId, importId) {
