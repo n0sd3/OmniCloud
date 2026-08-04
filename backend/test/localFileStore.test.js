@@ -360,3 +360,10 @@ test('cleanupTemps removes only temporary files', async () => {
 	await assert.rejects(fs.stat(temp), { code: 'ENOENT' });
 	assert.equal(await fs.readFile(permanent, 'utf8'), 'keep');
 });
+
+test('a byte count mismatch names the file and both sizes', async () => {
+	await assert.rejects(
+		store.writeFromStream({ ...file, file_name: 'notas.txt' }, Readable.from(['abc'])),
+		/notas\.txt.*expected 6, got 3/,
+	);
+});

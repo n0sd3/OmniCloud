@@ -189,22 +189,22 @@ test('queue never exceeds configured concurrency', async () => {
 });
 
 test('background warming logs failures without an unhandled rejection', async () => {
-	const errors = [];
+	const warnings = [];
 	const unhandled = [];
 	const onUnhandled = (reason) => unhandled.push(reason);
 	process.on('unhandledRejection', onUnhandled);
 	try {
 		const cache = createFileCacheService({
 			store: createStore(),
-			logger: { error(...args) { errors.push(args); } },
+			logger: { warn(...args) { warnings.push(args); } },
 		});
 		cache.warmFolder({ userId: 'u1', virtualPath: '/Fotos/', files: [file], adapterFor: () => createAdapter({
 			getStream: () => { throw new Error('provider failed'); },
 		}) });
 
-		await waitFor(() => errors.length === 1);
+		await waitFor(() => warnings.length === 1);
 		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(errors[0][0], 'File cache warm failed:');
+		assert.equal(warnings[0][0], 'File cache warm failed: provider failed');
 		assert.equal(unhandled.length, 0);
 	} finally {
 		process.off('unhandledRejection', onUnhandled);

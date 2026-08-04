@@ -18,6 +18,8 @@ export function createFileCacheService({
 	now = Date.now,
 	logger = console,
 } = {}) {
+	// Warm e best-effort: falhar so significa servir direto da nuvem, nao e erro da requisicao.
+	const warmFailed = (error) => logger.warn(`File cache warm failed: ${error?.message || error}`);
 	const warmedFolders = new Map();
 	const inflightDownloads = new Map();
 	const queue = [];
@@ -88,10 +90,9 @@ export function createFileCacheService({
 			for (const file of files) {
 				if (file.is_folder || (!directChildren && normalizePath(file.virtual_path) !== path)) continue;
 				try {
-					void warmFile({ userId, file, adapter: adapterFor(file) })
-						.catch((error) => logger.error('File cache warm failed:', error));
+					void warmFile({ userId, file, adapter: adapterFor(file) }).catch(warmFailed);
 				} catch (error) {
-					logger.error('File cache warm failed:', error);
+					warmFailed(error);
 				}
 			}
 			return true;
@@ -100,7 +101,7 @@ export function createFileCacheService({
 		async openFile({ userId, file, adapter, range = {} }) {
 			const local = await store.openReadStream(file, range);
 			if (local) return { stream: local, cached: true };
-			void warmFile({ userId, file, adapter }).catch((error) => logger.error('File cache warm failed:', error));
+			void warmFile({ userId, file, adapter }).catch(warmFailed);
 			return { stream: await adapter.getDownloadStream(file, range), cached: false };
 		},
 
