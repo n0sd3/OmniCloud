@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { pipeline } from 'node:stream/promises';
 import { BaseCloudAdapter, buildRangeHeader } from './BaseCloudAdapter.js';
 import { decryptJson } from '../utils/crypto.js';
 import { googleDocsExport } from '../utils/mime.js';
@@ -274,33 +275,44 @@ export class GoogleDriveAdapter extends BaseCloudAdapter {
 		const drive = await this.getDriveClient();
 		const parentId = remoteParentId || await this.ensureRemotePath(virtualPath);
 		const progressStream = this.createProgressStream(onProgress);
-		const body = stream.pipe(progressStream);
+		const pumping = pipeline(stream, progressStream, { signal });
 
-		const response = await drive.files.create(
-			{
-				requestBody: {
-					name: fileName,
-					parents: parentId ? [parentId] : undefined,
-				},
-				media: {
-					mimeType,
-					body,
-				},
-				fields: 'id, parents, size, mimeType, name',
-			},
-			{
-				maxBodyLength: Infinity,
-				signal,
-			},
-		);
+		try {
+			const [response] = await Promise.all([
+				drive.files.create(
+					{
+						requestBody: {
+							name: fileName,
+							parents: parentId ? [parentId] : undefined,
+						},
+						media: {
+							mimeType,
+							body: progressStream,
+						},
+						fields: 'id, parents, size, mimeType, name',
+					},
+					{
+						maxBodyLength: Infinity,
+						signal,
+					},
+				),
+				pumping,
+			]);
 
-		return {
-			remoteFileId: response.data.id,
-			remoteParentId: response.data.parents?.[0] || parentId || null,
-			size: Number(response.data.size || 0),
-			fileName: response.data.name || fileName,
-			mimeType: response.data.mimeType || mimeType,
-		};
+			return {
+				remoteFileId: response.data.id,
+				remoteParentId: response.data.parents?.[0] || parentId || null,
+				size: Number(response.data.size || 0),
+				fileName: response.data.name || fileName,
+				mimeType: response.data.mimeType || mimeType,
+			};
+		} catch (error) {
+			stream.unpipe?.(progressStream);
+			stream.destroy?.(error);
+			progressStream.destroy(error);
+			await pumping.catch(() => {});
+			throw error;
+		}
 	}
 
 	async createFolder({ name, virtualPath = '/', remoteParentId }) {

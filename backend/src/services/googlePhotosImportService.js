@@ -25,6 +25,26 @@ function errorMessage(error) {
 	return message;
 }
 
+function errorStatus(error) {
+	const status = error?.status ?? error?.statusCode ?? error?.code ?? error?.response?.status;
+	const numeric = Number(status);
+	return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function isGoogleImportAuthError(error) {
+	const status = errorStatus(error);
+	if (status === 401) return true;
+	if (status !== 403) return isAuthError(error);
+
+	const details = error?.response?.data?.error;
+	const reasons = (details?.errors || []).map(({ reason }) => reason).filter(Boolean);
+	if (reasons.some((reason) => /^(?:authError|invalidCredentials|insufficientPermissions|permissionDenied)$/i.test(reason))) {
+		return true;
+	}
+	const message = [details?.message, error?.message].filter(Boolean).join(' ');
+	return /invalid (?:credential|token)|expired token|revoked token|authentication|authorization|insufficient (?:authentication )?scope|not authorized|login required/i.test(message);
+}
+
 function credentialsFor(account) {
 	if (account.credentials) return account.credentials;
 	return account.encrypted_credentials ? decryptJson(account.encrypted_credentials) : {};
@@ -73,6 +93,84 @@ export function createGooglePhotosImportService({
 	now = Date.now,
 } = {}) {
 	const jobs = new Map();
+	const transferQueue = [];
+	const accountQueues = new Map();
+	let activeTransfers = 0;
+
+	function drainTransferQueue() {
+		while (activeTransfers < 2 && transferQueue.length) {
+			const waiter = transferQueue.shift();
+			if (waiter.job.status === 'cancelled') {
+				waiter.resolve(null);
+				continue;
+			}
+			activeTransfers += 1;
+			let released = false;
+			waiter.resolve(() => {
+				if (released) return;
+				released = true;
+				activeTransfers -= 1;
+				drainTransferQueue();
+			});
+		}
+	}
+
+	function acquireTransfer(job) {
+		return new Promise((resolve) => {
+			transferQueue.push({ job, resolve });
+			drainTransferQueue();
+		});
+	}
+
+	function drainAccountQueue(accountId) {
+		const queue = accountQueues.get(accountId);
+		if (!queue || queue.active) return;
+
+		while (queue.waiting.length) {
+			const waiter = queue.waiting.shift();
+			if (waiter.job.status === 'cancelled') {
+				waiter.resolve(null);
+				continue;
+			}
+			queue.active = true;
+			let released = false;
+			waiter.resolve(() => {
+				if (released) return;
+				released = true;
+				queue.active = false;
+				drainAccountQueue(accountId);
+			});
+			return;
+		}
+
+		accountQueues.delete(accountId);
+	}
+
+	function acquireAccount(job) {
+		let queue = accountQueues.get(job.accountId);
+		if (!queue) {
+			queue = { active: false, waiting: [] };
+			accountQueues.set(job.accountId, queue);
+		}
+		return new Promise((resolve) => {
+			queue.waiting.push({ job, resolve });
+			drainAccountQueue(job.accountId);
+		});
+	}
+
+	function removeQueuedJob(job) {
+		for (let index = transferQueue.length - 1; index >= 0; index -= 1) {
+			if (transferQueue[index].job !== job) continue;
+			transferQueue.splice(index, 1)[0].resolve(null);
+		}
+		const accountQueue = accountQueues.get(job.accountId);
+		if (!accountQueue) return;
+		for (let index = accountQueue.waiting.length - 1; index >= 0; index -= 1) {
+			if (accountQueue.waiting[index].job !== job) continue;
+			accountQueue.waiting.splice(index, 1)[0].resolve(null);
+		}
+		if (!accountQueue.active && !accountQueue.waiting.length) accountQueues.delete(job.accountId);
+	}
 
 	function sanitizeJob(job) {
 		return {
@@ -86,6 +184,13 @@ export function createGooglePhotosImportService({
 			failed: job.failed,
 			errors: job.errors,
 		};
+	}
+
+	function updatePollingConfig(job, pollingConfig) {
+		const pollIntervalMs = durationMs(pollingConfig?.pollInterval);
+		const timeoutMs = durationMs(pollingConfig?.timeoutIn);
+		if (pollIntervalMs > 0) job.pollIntervalMs = pollIntervalMs;
+		if (timeoutMs > 0) job.timeoutAt = now() + timeoutMs;
 	}
 
 	function getJob(userId, importId) {
@@ -110,6 +215,8 @@ export function createGooglePhotosImportService({
 		job.oauthClient = null;
 		job.account = null;
 		job.adapter = null;
+		job.pickerSessionId = null;
+		job.pickerUri = null;
 		job.promise = null;
 		job.controllers.clear();
 		job.streams.clear();
@@ -118,6 +225,7 @@ export function createGooglePhotosImportService({
 	}
 
 	function abortTransfers(job) {
+		removeQueuedJob(job);
 		for (const controller of job.controllers) controller.abort();
 		for (const stream of job.streams) stream.destroy?.();
 	}
@@ -154,11 +262,25 @@ export function createGooglePhotosImportService({
 		}
 	}
 
+	async function failPickerJob(job, error) {
+		if (job.status !== 'waiting_for_selection') return sanitizeJob(job);
+		job.status = 'failed';
+		job.errors.push(errorMessage(error));
+		if (isGoogleImportAuthError(error)) markStatus(job.userId, job.accountId, 'invalid_token');
+		await deletePickerSession(job);
+		emitJobEvent(job, 'photos-import:complete');
+		releaseTerminalJob(job);
+		return sanitizeJob(job);
+	}
+
 	async function importItems(job, items) {
 		let stopped = false;
 		let index = 0;
+		let releaseAccount;
 
 		try {
+			releaseAccount = await acquireAccount(job);
+			if (!releaseAccount || job.status === 'cancelled') return;
 			const virtualPath = buildGooglePhotosImportPath(job.account.email);
 			const remoteParentId = await job.adapter.ensureRemotePath(virtualPath);
 			const existingNames = await job.adapter.listFileNames(remoteParentId);
@@ -171,6 +293,11 @@ export function createGooglePhotosImportService({
 					if (itemIndex >= items.length) return;
 					const item = items[itemIndex];
 					const fileName = allocatedNames[itemIndex];
+					const releaseTransfer = await acquireTransfer(job);
+					if (!releaseTransfer || stopped || job.status === 'cancelled') {
+						releaseTransfer?.();
+						return;
+					}
 					const controller = new AbortController();
 					let stream;
 					job.controllers.add(controller);
@@ -208,7 +335,7 @@ export function createGooglePhotosImportService({
 						const message = errorMessage(error);
 						job.errors.push({ fileName, message });
 						emitJobEvent(job, 'photos-import:item-error', { fileName, message });
-						if (isAuthError(error)) {
+						if (isGoogleImportAuthError(error)) {
 							stopped = true;
 							abortTransfers(job);
 							markStatus(job.userId, job.accountId, 'invalid_token');
@@ -217,6 +344,7 @@ export function createGooglePhotosImportService({
 						job.controllers.delete(controller);
 						job.streams.delete(stream);
 						if (stopped || job.status === 'cancelled') stream?.destroy?.();
+						releaseTransfer();
 					}
 				}
 			}
@@ -236,10 +364,11 @@ export function createGooglePhotosImportService({
 					: 'completed';
 			}
 		} catch (error) {
-			if (isAuthError(error)) markStatus(job.userId, job.accountId, 'invalid_token');
+			if (isGoogleImportAuthError(error)) markStatus(job.userId, job.accountId, 'invalid_token');
 			job.errors.push(errorMessage(error));
 			if (job.status !== 'cancelled') job.status = 'failed';
 		} finally {
+			releaseAccount?.();
 			await deletePickerSession(job);
 			emitJobEvent(job, 'photos-import:complete');
 			releaseTerminalJob(job);
@@ -261,6 +390,7 @@ export function createGooglePhotosImportService({
 		try {
 			response = await oauthClient.request({ method: 'POST', url: `${PICKER_API}/sessions`, data: {} });
 		} catch (error) {
+			if (isGoogleImportAuthError(error)) markStatus(userId, accountId, 'invalid_token');
 			throw new Error(errorMessage(error));
 		}
 
@@ -300,6 +430,7 @@ export function createGooglePhotosImportService({
 
 		try {
 			const { data } = await job.oauthClient.request({ url: `${PICKER_API}/sessions/${job.pickerSessionId}` });
+			updatePollingConfig(job, data.pollingConfig);
 			if (!data.mediaItemsSet) return sanitizeJob(job);
 			if (job.status !== 'waiting_for_selection') return sanitizeJob(job);
 			const items = await listAllPickedItems(job);
@@ -313,7 +444,7 @@ export function createGooglePhotosImportService({
 				releaseTerminalJob(job);
 			}
 		} catch (error) {
-			throw new Error(errorMessage(error));
+			return failPickerJob(job, error);
 		}
 
 		return sanitizeJob(job);

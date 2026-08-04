@@ -108,6 +108,7 @@ GOOGLE_REDIRECT_URI=http://localhost:8787/api/accounts/google/callback
 - If the OAuth app is in testing mode, only test users can connect.
 - Keep the existing Google redirect URI unchanged. Reconnect existing OmniCloud Google Drive accounts once to grant the Google Photos Picker scope.
 - Google Photos Picker imports only the images and videos the user selects; it does not expose the full Google Photos library.
+- Imports use the best rendition made available by Google Photos Picker. Picker image downloads can omit location metadata, and video downloads can be transcoded, so OmniCloud does not promise byte-identical original files.
 - Do not commit `.env`.
 
 ## OneDrive

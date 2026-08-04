@@ -9,16 +9,21 @@ function errorMessage(error) {
 	return error?.message || 'Google Photos import failed';
 }
 
+function failureLines(errors = []) {
+	return errors.map((error) => {
+		if (typeof error === 'string') return error;
+		return [error?.fileName, error?.message].filter(Boolean).join(': ');
+	}).filter(Boolean);
+}
+
 export function getGooglePhotosImportSummary(photoImport, messages) {
 	if (photoImport.status === 'starting' || photoImport.status === 'waiting_for_selection') return messages.waiting();
 	if (photoImport.status === 'importing') return messages.importing(photoImport);
 	if (photoImport.status === 'completed') return messages.completed(photoImport);
 	if (photoImport.status === 'cancelled') return messages.cancelled();
-	if (photoImport.status === 'failed') {
-		const failure = photoImport.errors?.[0];
-		return typeof failure === 'string' ? failure : failure?.message || messages.failed();
-	}
-	return messages.partial(photoImport);
+	const failures = failureLines(photoImport.errors);
+	if (photoImport.status === 'failed') return failures.length ? failures.join('\n') : messages.failed();
+	return [messages.partial(photoImport), ...failures].join('\n');
 }
 
 export function createGooglePhotosImportLifecycle({
@@ -49,6 +54,7 @@ export function createGooglePhotosImportLifecycle({
 	function update(watch, next) {
 		if (watches.get(watch.account.id) !== watch || disposed) return false;
 		watch.photoImport = { ...watch.photoImport, ...next };
+		if (watch.photoImport.status !== 'waiting_for_selection') watch.closedWaitingPolls = 0;
 		onUpdate(watch.account.id, watch.photoImport);
 		if (!TERMINAL_STATUSES.has(watch.photoImport.status)) return true;
 
@@ -69,15 +75,22 @@ export function createGooglePhotosImportLifecycle({
 		if (watches.get(watch.account.id) !== watch || disposed) return;
 		try {
 			const { data } = await api.getGooglePhotosImport(watch.importId);
+			if (Number.isFinite(Number(data.pollIntervalMs))) watch.pollIntervalMs = Number(data.pollIntervalMs);
 			if (!update(watch, data)) return;
 
 			if (data.status === 'waiting_for_selection' && watch.pickerWindow?.closed) {
-				const { data: cancelled } = await api.cancelGooglePhotosImport(watch.importId);
-				update(watch, cancelled);
-				return;
+				watch.closedWaitingPolls += 1;
+				if (watch.closedWaitingPolls >= 2) {
+					const { data: cancelled } = await api.cancelGooglePhotosImport(watch.importId);
+					update(watch, cancelled);
+					return;
+				}
+			} else {
+				watch.closedWaitingPolls = 0;
 			}
 			watch.pollRetries = 0;
 		} catch (error) {
+			watch.closedWaitingPolls = 0;
 			if (!isRetryable(error) || watch.pollRetries >= maxPollRetries) {
 				fail(watch, error);
 				return;
@@ -125,6 +138,7 @@ export function createGooglePhotosImportLifecycle({
 			timer: null,
 			socket: null,
 			pollRetries: 0,
+			closedWaitingPolls: 0,
 		};
 		watches.set(account.id, watch);
 		onUpdate(account.id, watch.photoImport);

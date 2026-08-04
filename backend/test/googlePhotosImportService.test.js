@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { Readable } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 import test from 'node:test';
 import os from 'node:os';
 import path from 'node:path';
@@ -93,6 +93,20 @@ async function waitTurns(count = 5) {
 	}
 }
 
+async function settleWithin(promise, timeoutMs = 250) {
+	let timer;
+	try {
+		return await Promise.race([
+			promise,
+			new Promise((_resolve, reject) => {
+				timer = setTimeout(() => reject(new Error('Timed out waiting for promise settlement')), timeoutMs);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 test('Google authorization asks for Picker access together with Drive access', () => {
 	const { authorizationUrl } = createGoogleAuthorizationRequest('user-1');
 	const scope = new URL(authorizationUrl).searchParams.get('scope').split(' ');
@@ -101,13 +115,20 @@ test('Google authorization asks for Picker access together with Drive access', (
 	assert.ok(scope.includes('https://www.googleapis.com/auth/photospicker.mediaitems.readonly'));
 });
 
-test('Drive adapter returns every name in the resolved destination folder', async () => {
+test('Drive adapter returns every name across destination-folder pages', async () => {
 	const adapter = Object.create(GoogleDriveAdapter.prototype);
+	const pageTokens = [];
 	adapter.getDriveClient = async () => ({
-		files: { list: async () => ({ data: { files: [{ name: 'foto.jpg' }, { name: 'video.mp4' }] } }) },
+		files: { list: async ({ pageToken }) => {
+			pageTokens.push(pageToken);
+			return pageToken
+				? { data: { files: [{ name: 'video.mp4' }] } }
+				: { data: { files: [{ name: 'foto.jpg' }], nextPageToken: 'page-2' } };
+		} },
 	});
 
 	assert.deepEqual(await adapter.listFileNames('folder-1'), ['foto.jpg', 'video.mp4']);
+	assert.deepEqual(pageTokens, [undefined, 'page-2']);
 });
 
 test('Drive adapter forwards an abort signal to the active upload request', async () => {
@@ -131,6 +152,66 @@ test('Drive adapter forwards an abort signal to the active upload request', asyn
 	});
 
 	assert.equal(requestOptions.signal, controller.signal);
+});
+
+test('Drive adapter rejects promptly and tears down both streams when the source fails mid-upload', async () => {
+	const adapter = Object.create(GoogleDriveAdapter.prototype);
+	let uploadBody;
+	adapter.getDriveClient = async () => ({
+		files: { create: async ({ media }) => {
+			uploadBody = media.body;
+			for await (const _chunk of uploadBody) { /* consume the real upload body */ }
+			return { data: { id: 'must-not-complete' } };
+		} },
+	});
+	let emitted = false;
+	const source = new Readable({
+		read() {
+			if (emitted) return;
+			emitted = true;
+			this.push('partial bytes');
+			queueMicrotask(() => this.destroy(new Error('Photos source failed')));
+		},
+	});
+	// A bare pipe does not forward source errors and would otherwise make this an uncaught exception.
+	source.on('error', () => {});
+
+	await assert.rejects(
+		settleWithin(adapter.uploadStream({
+			stream: source,
+			fileName: 'photo.jpg',
+			mimeType: 'image/jpeg',
+			remoteParentId: 'folder-1',
+			onProgress: () => {},
+		})),
+		/Photos source failed/,
+	);
+	assert.equal(source.destroyed, true);
+	assert.equal(uploadBody.destroyed, true);
+});
+
+test('Drive adapter tears down the source and body when Drive rejects an upload', async () => {
+	const adapter = Object.create(GoogleDriveAdapter.prototype);
+	let uploadBody;
+	adapter.getDriveClient = async () => ({
+		files: { create: async ({ media }) => {
+			uploadBody = media.body;
+			throw new Error('Drive upload failed');
+		} },
+	});
+	const source = new PassThrough();
+	source.on('error', () => {});
+	source.write('partial bytes');
+
+	await assert.rejects(adapter.uploadStream({
+		stream: source,
+		fileName: 'photo.jpg',
+		mimeType: 'image/jpeg',
+		remoteParentId: 'folder-1',
+		onProgress: () => {},
+	}), /Drive upload failed/);
+	assert.equal(source.destroyed, true);
+	assert.equal(uploadBody.destroyed, true);
 });
 
 test('builds the fixed folder from the email local part', () => {
@@ -193,18 +274,37 @@ test('start creates a sanitized waiting job from the Picker session', async () =
 });
 
 test('start replaces URL and token-bearing Google errors with a controlled message', async () => {
+	const marked = [];
 	const service = createTestService({
 		request: async () => {
 			throw { response: { data: { error: {
 				message: 'GET https://photos.example/picker?access_token=secret-token',
 			} } } };
 		},
+		markStatus: (...args) => marked.push(args),
 	});
 
 	await assert.rejects(
 		service.start('u1', 'drive-1'),
 		(error) => error.message === 'Google Photos Picker request failed',
 	);
+	assert.deepEqual(marked, []);
+});
+
+test('start marks the account invalid for a sanitized Picker OAuth failure', async () => {
+	const marked = [];
+	const service = createTestService({
+		request: async () => {
+			throw Object.assign(new Error('access_token secret-token'), { status: 401 });
+		},
+		markStatus: (...args) => marked.push(args),
+	});
+
+	await assert.rejects(
+		service.start('u1', 'drive-1'),
+		(error) => error.message === 'Google Photos Picker request failed',
+	);
+	assert.deepEqual(marked, [['u1', 'drive-1', 'invalid_token']]);
 });
 
 test('refresh lists every Picker page before marking the job importing', async () => {
@@ -234,25 +334,102 @@ test('refresh lists every Picker page before marking the job importing', async (
 	assert.deepEqual(operations, ['page one', 'page two', 'import']);
 });
 
-test('refresh page failure leaves the job waiting without uploads', async () => {
+test('page-two failure returns a sanitized terminal job, cleans up, and expires it', async () => {
 	const uploaded = [];
+	const marked = [];
+	const requests = [];
+	let evict;
+	let evictionDelay;
 	const request = async (options) => {
+		requests.push(options);
 		if (options.method === 'POST') return { data: {
 			id: 'picker-1', pickerUri: 'https://photos.google.com/picker/abc',
 			pollingConfig: { pollInterval: '3s', timeoutIn: '180s' },
 		} };
+		if (options.method === 'DELETE') return { data: {} };
 		if (options.url.endsWith('/sessions/picker-1')) return { data: { mediaItemsSet: true } };
 		if (!options.params.pageToken) return { data: { mediaItems: [{ id: 'one' }], nextPageToken: 'next' } };
-		throw new Error('second page unavailable');
+		throw new Error('second page unavailable at https://photos.example/media?access_token=secret');
 	};
-	const service = createTestService({ request, runImport: async () => uploaded.push('file') });
+	const service = createTestService({
+		request,
+		runImport: async () => uploaded.push('file'),
+		markStatus: (...args) => marked.push(args),
+		terminalJobTtlMs: 4321,
+		setTimer: (callback, delay) => {
+			evict = callback;
+			evictionDelay = delay;
+			return { unref() {} };
+		},
+	});
 	const job = await service.start('u1', 'drive-1');
 
-	await assert.rejects(service.refresh('u1', job.id), /second page unavailable/);
+	const failed = await service.refresh('u1', job.id);
 	assert.deepEqual(uploaded, []);
-	const current = await service.get('u1', job.id);
-	assert.equal(current.status, 'waiting_for_selection');
-	assert.equal(current.total, 0);
+	assert.equal(failed.status, 'failed');
+	assert.equal(failed.pickerUri, null);
+	assert.equal(failed.total, 0);
+	assert.deepEqual(failed.errors, ['Google Photos Picker request failed']);
+	assert.deepEqual(marked, []);
+	assert.equal(requests.filter((options) => options.method === 'DELETE').length, 1);
+	assert.equal(evictionDelay, 4321);
+	assert.deepEqual(await service.get('u1', job.id), failed);
+
+	evict();
+	await assert.rejects(service.get('u1', job.id), /not found/);
+});
+
+test('refresh returns a terminal job and marks invalid_token on Picker 401', async () => {
+	const marked = [];
+	const requests = [];
+	const request = async (options) => {
+		requests.push(options);
+		if (options.method === 'POST') return { data: {
+			id: 'picker-1', pickerUri: 'https://photos.google.com/picker/abc',
+			pollingConfig: { pollInterval: '3s', timeoutIn: '180s' },
+		} };
+		if (options.method === 'DELETE') return { data: {} };
+		throw Object.assign(new Error('invalid access_token secret'), { status: 401 });
+	};
+	const service = createTestService({
+		request,
+		markStatus: (...args) => marked.push(args),
+	});
+	const job = await service.start('u1', 'drive-1');
+
+	const failed = await service.refresh('u1', job.id);
+
+	assert.equal(failed.status, 'failed');
+	assert.deepEqual(failed.errors, ['Google Photos Picker request failed']);
+	assert.deepEqual(marked, [['u1', 'drive-1', 'invalid_token']]);
+	assert.equal(requests.filter((options) => options.method === 'DELETE').length, 1);
+});
+
+test('refresh adopts updated Picker polling interval and timeout', async () => {
+	const requests = [];
+	let currentTime = 0;
+	const request = async (options) => {
+		requests.push(options);
+		if (options.method === 'POST') return { data: {
+			id: 'picker-1', pickerUri: 'https://photos.google.com/picker/abc',
+			pollingConfig: { pollInterval: '1s', timeoutIn: '60s' },
+		} };
+		if (options.method === 'DELETE') return { data: {} };
+		return { data: {
+			mediaItemsSet: false,
+			pollingConfig: { pollInterval: '7s', timeoutIn: '2s' },
+		} };
+	};
+	const service = createTestService({ request, now: () => currentTime });
+	const job = await service.start('u1', 'drive-1');
+	currentTime = 5000;
+
+	const refreshed = await service.refresh('u1', job.id);
+	assert.equal(refreshed.pollIntervalMs, 7000);
+
+	currentTime = 7001;
+	assert.equal((await service.refresh('u1', job.id)).status, 'cancelled');
+	assert.equal(requests.filter((options) => options.url?.endsWith('/sessions/picker-1') && !options.method).length, 1);
 });
 
 test('concurrent refreshes invoke the import callback only once', async () => {
@@ -380,7 +557,7 @@ test('cancel exposes a controlled error when Picker deletion returns a token-bea
 	assert.deepEqual((await service.cancel('u1', job.id)).errors, ['Google Photos Picker request failed']);
 });
 
-test('imports original images and videos with no more than two active transfers', async () => {
+test('imports best available Picker image and video renditions with no more than two active transfers', async () => {
 	const items = [
 		mediaItem('photo-one', 'photo.jpg', 'image/jpeg'),
 		mediaItem('video-one', 'clip.mp4', 'video/mp4', 'VIDEO'),
@@ -452,6 +629,199 @@ test('imports original images and videos with no more than two active transfers'
 	]);
 });
 
+test('the service-wide scheduler caps concurrent transfers at two across jobs', async () => {
+	const accounts = new Map(['drive-a', 'drive-b'].map((id) => [id, {
+		id,
+		user_id: 'u1',
+		provider: 'google_drive',
+		status: 'active',
+		email: `${id}@gmail.com`,
+		credentials: { scope: 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly' },
+	}]));
+	const releases = [];
+	let active = 0;
+	let maxActive = 0;
+	let uploads = 0;
+	const service = createGooglePhotosImportService({
+		getAccount: (_userId, accountId) => accounts.get(accountId),
+		createAdapter: (account) => {
+			const pickerId = `${account.id}-picker`;
+			const items = [
+				mediaItem(`${account.id}-one`, `${account.id}-one.jpg`, 'image/jpeg'),
+				mediaItem(`${account.id}-two`, `${account.id}-two.jpg`, 'image/jpeg'),
+			];
+			const request = async (options) => {
+				if (options.method === 'POST') return { data: {
+					id: pickerId,
+					pickerUri: `https://photos.google.com/picker/${account.id}`,
+					pollingConfig: { pollInterval: '1s', timeoutIn: '60s' },
+				} };
+				if (options.method === 'DELETE') return { data: {} };
+				if (options.url.endsWith(`/sessions/${pickerId}`)) return { data: { mediaItemsSet: true } };
+				if (options.url.endsWith('/mediaItems')) return { data: { mediaItems: items } };
+				return { data: Readable.from(['bytes']) };
+			};
+			return {
+				createOAuthClient: () => ({ request }),
+				ensureRemotePath: async () => `${account.id}-folder`,
+				listFileNames: async () => [],
+				uploadStream: async ({ stream }) => {
+					for await (const _chunk of stream) { /* consume the real stream */ }
+					active += 1;
+					uploads += 1;
+					maxActive = Math.max(maxActive, active);
+					await new Promise((resolve) => releases.push(resolve));
+					active -= 1;
+					return { size: 5 };
+				},
+			};
+		},
+		sync: async () => {},
+	});
+	const [first, second] = await Promise.all([
+		service.start('u1', 'drive-a'),
+		service.start('u1', 'drive-b'),
+	]);
+
+	await Promise.all([service.refresh('u1', first.id), service.refresh('u1', second.id)]);
+	await waitForJob(service, first.id, () => uploads >= 2);
+	for (const release of releases.splice(0)) release();
+	await waitForJob(service, first.id, () => uploads === 4);
+	for (const release of releases.splice(0)) release();
+	await Promise.all([
+		waitForJob(service, first.id),
+		waitForJob(service, second.id),
+	]);
+
+	assert.equal(maxActive, 2);
+});
+
+test('same-account jobs serialize duplicate-name allocation', async () => {
+	const storedNames = new Set();
+	const uploads = [];
+	let listCalls = 0;
+	let uploadCalls = 0;
+	let releaseFirstUpload;
+	let firstUploadStarted;
+	const firstStarted = new Promise((resolve) => { firstUploadStarted = resolve; });
+	let pickerNumber = 0;
+	const request = async (options) => {
+		if (options.method === 'POST') {
+			pickerNumber += 1;
+			return { data: {
+				id: `picker-${pickerNumber}`,
+				pickerUri: `https://photos.google.com/picker/${pickerNumber}`,
+				pollingConfig: { pollInterval: '1s', timeoutIn: '60s' },
+			} };
+		}
+		if (options.method === 'DELETE') return { data: {} };
+		if (options.url.includes('/sessions/')) return { data: { mediaItemsSet: true } };
+		if (options.url.endsWith('/mediaItems')) {
+			return { data: { mediaItems: [mediaItem('same-photo', 'foto.jpg', 'image/jpeg')] } };
+		}
+		return { data: Readable.from(['bytes']) };
+	};
+	const adapter = {
+		createOAuthClient: () => ({ request }),
+		ensureRemotePath: async () => 'folder-1',
+		listFileNames: async () => {
+			listCalls += 1;
+			return [...storedNames];
+		},
+		uploadStream: async ({ fileName, stream }) => {
+			for await (const _chunk of stream) { /* consume the real stream */ }
+			uploadCalls += 1;
+			uploads.push(fileName);
+			if (uploadCalls === 1) {
+				firstUploadStarted();
+				await new Promise((resolve) => { releaseFirstUpload = resolve; });
+			}
+			storedNames.add(fileName);
+			return { size: 5 };
+		},
+	};
+	const service = createTestService({ adapter, sync: async () => {} });
+	const [first, second] = await Promise.all([
+		service.start('u1', 'drive-1'),
+		service.start('u1', 'drive-1'),
+	]);
+	await service.refresh('u1', first.id);
+	await firstStarted;
+	await service.refresh('u1', second.id);
+	await waitTurns();
+	const callsBeforeFirstCompleted = listCalls;
+
+	releaseFirstUpload();
+	await Promise.all([
+		waitForJob(service, first.id),
+		waitForJob(service, second.id),
+	]);
+
+	assert.equal(callsBeforeFirstCompleted, 1);
+	assert.deepEqual(uploads, ['foto.jpg', 'foto (2).jpg']);
+});
+
+test('cancelling a job queued behind the same account settles without waiting for the active job', async () => {
+	let pickerNumber = 0;
+	let uploadCalls = 0;
+	let releaseFirstUpload;
+	let firstUploadStarted;
+	const firstStarted = new Promise((resolve) => { firstUploadStarted = resolve; });
+	const request = async (options) => {
+		if (options.method === 'POST') {
+			pickerNumber += 1;
+			return { data: {
+				id: `picker-${pickerNumber}`,
+				pickerUri: `https://photos.google.com/picker/${pickerNumber}`,
+				pollingConfig: { pollInterval: '1s', timeoutIn: '60s' },
+			} };
+		}
+		if (options.method === 'DELETE') return { data: {} };
+		if (options.url.includes('/sessions/')) return { data: { mediaItemsSet: true } };
+		if (options.url.endsWith('/mediaItems')) {
+			return { data: { mediaItems: [mediaItem('queued-photo', 'foto.jpg', 'image/jpeg')] } };
+		}
+		return { data: Readable.from(['bytes']) };
+	};
+	const adapter = {
+		createOAuthClient: () => ({ request }),
+		ensureRemotePath: async () => 'folder-1',
+		listFileNames: async () => [],
+		uploadStream: async ({ stream }) => {
+			for await (const _chunk of stream) { /* consume the real stream */ }
+			uploadCalls += 1;
+			if (uploadCalls === 1) {
+				firstUploadStarted();
+				await new Promise((resolve) => { releaseFirstUpload = resolve; });
+				return { size: 5 };
+			}
+			return new Promise(() => {});
+		},
+	};
+	const service = createTestService({ adapter, sync: async () => {} });
+	const [first, second] = await Promise.all([
+		service.start('u1', 'drive-1'),
+		service.start('u1', 'drive-1'),
+	]);
+	await service.refresh('u1', first.id);
+	await firstStarted;
+	await service.refresh('u1', second.id);
+
+	let cancellation;
+	let cancellationError;
+	try {
+		cancellation = await settleWithin(service.cancel('u1', second.id));
+	} catch (error) {
+		cancellationError = error;
+	}
+	releaseFirstUpload();
+	await waitForJob(service, first.id);
+	if (cancellationError) throw cancellationError;
+
+	assert.equal(cancellation.status, 'cancelled');
+	assert.equal(uploadCalls, 1);
+});
+
 test('keeps successful files when one media transfer fails', async () => {
 	const items = [
 		mediaItem('broken', 'broken.jpg', 'image/jpeg'),
@@ -480,6 +850,86 @@ test('keeps successful files when one media transfer fails', async () => {
 	assert.equal(completed.completed, 1);
 	assert.equal(completed.failed, 1);
 	assert.deepEqual(completed.errors, [{ fileName: 'broken.jpg', message: 'media unavailable' }]);
+});
+
+test('Drive quota and rate-limit 403s remain item failures without invalidating the account', async () => {
+	const items = [
+		mediaItem('quota', 'quota.jpg', 'image/jpeg'),
+		mediaItem('rate', 'rate.jpg', 'image/jpeg'),
+		mediaItem('good-after-403', 'good.jpg', 'image/jpeg'),
+	];
+	const marked = [];
+	const request = readyPickerRequest(items, async () => ({ data: Readable.from(['bytes']) }));
+	const adapter = {
+		createOAuthClient: () => ({ request }),
+		ensureRemotePath: async () => 'folder-1',
+		listFileNames: async () => [],
+		uploadStream: async ({ fileName, stream }) => {
+			for await (const _chunk of stream) { /* consume the real stream */ }
+			if (fileName === 'quota.jpg') {
+				throw { response: { status: 403, data: { error: {
+					message: "The user's Drive storage quota has been exceeded.",
+					errors: [{ reason: 'storageQuotaExceeded' }],
+				} } } };
+			}
+			if (fileName === 'rate.jpg') {
+				throw { response: { status: 403, data: { error: {
+					message: 'User rate limit exceeded.',
+					errors: [{ reason: 'userRateLimitExceeded' }],
+				} } } };
+			}
+			return { size: 5 };
+		},
+	};
+	const service = createTestService({
+		adapter,
+		markStatus: (...args) => marked.push(args),
+		sync: async () => {},
+	});
+	const started = await service.start('u1', 'drive-1');
+
+	await service.refresh('u1', started.id);
+	const completed = await waitForJob(service, started.id);
+
+	assert.equal(completed.status, 'completed_with_errors');
+	assert.equal(completed.completed, 1);
+	assert.equal(completed.failed, 2);
+	assert.deepEqual(marked, []);
+	assert.deepEqual(completed.errors, [
+		{ fileName: 'quota.jpg', message: "The user's Drive storage quota has been exceeded." },
+		{ fileName: 'rate.jpg', message: 'User rate limit exceeded.' },
+	]);
+});
+
+test('an auth-specific Drive 403 stops the import and marks invalid_token', async () => {
+	const items = [mediaItem('permission', 'permission.jpg', 'image/jpeg')];
+	const marked = [];
+	const request = readyPickerRequest(items, async () => ({ data: Readable.from(['bytes']) }));
+	const adapter = {
+		createOAuthClient: () => ({ request }),
+		ensureRemotePath: async () => 'folder-1',
+		listFileNames: async () => [],
+		uploadStream: async ({ stream }) => {
+			for await (const _chunk of stream) { /* consume the real stream */ }
+			throw { response: { status: 403, data: { error: {
+				message: 'Request had insufficient authentication scopes.',
+				errors: [{ reason: 'insufficientPermissions' }],
+			} } } };
+		},
+	};
+	const service = createTestService({
+		adapter,
+		markStatus: (...args) => marked.push(args),
+		sync: async () => {},
+	});
+	const started = await service.start('u1', 'drive-1');
+
+	await service.refresh('u1', started.id);
+	const failed = await waitForJob(service, started.id);
+
+	assert.equal(failed.status, 'failed');
+	assert.equal(failed.failed, 1);
+	assert.deepEqual(marked, [['u1', 'drive-1', 'invalid_token']]);
 });
 
 test('auth failure marks the account invalid and starts no later items', async () => {

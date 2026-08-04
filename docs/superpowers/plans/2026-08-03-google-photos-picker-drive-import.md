@@ -12,12 +12,15 @@
 
 - Request exactly `https://www.googleapis.com/auth/photospicker.mediaitems.readonly`; do not use the removed `photoslibrary` scope.
 - Source and destination must use the same stored `google_drive` OAuth account.
-- Import images and videos at original quality without buffering complete files.
+- Import the best image/video rendition made available by Picker without buffering
+  complete files. Picker image downloads can omit location metadata, and video
+  downloads can be transcoded; byte-identical originals are not promised.
 - Destination is `/OmniCloud/Google Fotos/<part before first @>/`.
 - Existing names create extension-aware copies: `foto.jpg`, `foto (2).jpg`, `foto (3).jpg`.
 - List every Picker page before uploading anything.
-- Run at most two media transfers concurrently.
-- One media failure must not cancel independent items; auth failure stops new transfers and marks the account `invalid_token`.
+- Run at most two media transfers concurrently across the whole import service.
+- Serialize same-account job admission through name allocation and transfer completion.
+- One media failure must not cancel independent items; only 401 or an auth-specific Google reason/message stops new transfers and marks the account `invalid_token`.
 - Picker tokens, bearer headers, and temporary media URLs must never be persisted or returned in errors.
 - Keep import jobs in memory and add no dependency or Google Photos storage provider.
 
@@ -295,11 +298,11 @@ test('auth failure marks the account invalid and starts no later items', async (
 });
 ```
 
-Also assert image download uses an original-download URL, video uses its video-original form, each request sets `responseType: 'stream'`, and allocated names are passed to `uploadStream` with the one resolved parent ID.
+Also assert image download uses Picker's `=d` URL and video uses `=dv`, each request sets `responseType: 'stream'`, and allocated names are passed to `uploadStream` with the one resolved parent ID. These URLs provide Picker's best available rendition, not guaranteed byte-identical originals.
 
 - [ ] **Step 2: Run import tests and verify RED**
 
-Run: `npm --prefix backend test -- --test-name-pattern='no more than two|successful files|auth failure|original'`
+Run: `npm --prefix backend test -- --test-name-pattern='no more than two|successful files|auth failure|best available'`
 
 Expected: tests fail because `runImport` has no transfer implementation.
 
@@ -320,7 +323,7 @@ After workers settle, call `syncAccount(userId, account)` once if at least one u
 
 - [ ] **Step 4: Run all service tests and verify GREEN**
 
-Run: `npm --prefix backend test -- --test-name-pattern='Google Photos|Picker|fixed folder|extension-aware|start |timeout|cancel|page failure|no more than two|successful files|auth failure|original'`
+Run: `npm --prefix backend test -- --test-name-pattern='Google Photos|Picker|fixed folder|extension-aware|start |timeout|cancel|page failure|no more than two|successful files|auth failure|best available'`
 
 Expected: all focused tests pass.
 
@@ -432,7 +435,7 @@ async function startGooglePhotosImport(account) {
 }
 ```
 
-`watchPhotoImport` opens `api.createUploadSocket(importId)` for progress events and polls `getGooglePhotosImport` no faster than `pollIntervalMs`. If `pickerWindow.closed` while still waiting, call cancel. Stop timers/socket on `completed`, `completed_with_errors`, `failed`, or `cancelled`; reload accounts after any successful upload so quota and metadata are current.
+`watchPhotoImport` opens `api.createUploadSocket(importId)` for progress events and polls `getGooglePhotosImport` using the newest returned `pollIntervalMs`. If `pickerWindow.closed`, cancel only after a second consecutive backend refresh still reports `waiting_for_selection`; one stale waiting response after `/autoclose` is not enough. Stop timers/socket on `completed`, `completed_with_errors`, `failed`, or `cancelled`; reload accounts after any successful upload so quota and metadata are current.
 
 Add an **Import from Google Photos** button only for active `google_drive` cards. While active, show selected/complete/failed counts and the terminal summary. Existing invalid-token cards keep the reconnect action.
 
@@ -479,7 +482,7 @@ With the Picker API enabled and an authorized test account:
 1. Reconnect the Google Drive account and verify the Picker consent appears.
 2. Click **Import from Google Photos**, select one image and one video, and finish.
 3. Verify live counts and the terminal summary.
-4. Verify originals under `/OmniCloud/Google Fotos/<local-part>/` on that same Drive.
+4. Verify the best Picker-provided renditions under `/OmniCloud/Google Fotos/<local-part>/` on that same Drive, allowing stripped image location metadata and transcoded video.
 5. Repeat the selection and verify `(2)` names.
 6. Close a new Picker without choosing and verify cancellation creates no files.
 

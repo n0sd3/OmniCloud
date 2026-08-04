@@ -701,8 +701,8 @@ onBeforeUnmount(() => {
 							<span class="font-medium" :class="account.palette.text">{{ formatBytesStrict(account.free) }} {{ t('storage.empty') }}</span>
 						</div>
 
-						<div v-if="account.provider === 'google_drive' && photoImports[account.id]" class="mt-3 rounded-2xl bg-[#e8f0fe] px-3 py-2 text-xs text-[#1a73e8] dark:bg-sky-950/30 dark:text-sky-300">
-							<p>{{ photoImportMessage(photoImports[account.id]) }}</p>
+						<div v-if="account.provider === 'google_drive' && photoImports[account.id]" class="mt-3 rounded-2xl bg-[#e8f0fe] px-3 py-2 text-xs text-[#1a73e8] dark:bg-sky-950/30 dark:text-sky-300" :role="['failed', 'completed_with_errors'].includes(photoImports[account.id].status) ? 'alert' : 'status'" :aria-live="['failed', 'completed_with_errors'].includes(photoImports[account.id].status) ? 'assertive' : 'polite'" aria-atomic="true">
+							<p class="whitespace-pre-line">{{ photoImportMessage(photoImports[account.id]) }}</p>
 							<p v-if="isPhotoImportActive(account.id)" class="mt-1 text-[#5f6368] dark:text-slate-400">{{ t('storage.googlePhotosImportCounts', photoImports[account.id]) }}</p>
 						</div>
 

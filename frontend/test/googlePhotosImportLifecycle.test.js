@@ -64,7 +64,7 @@ function setup({ popup = true, popupNavigationError = false, start = Promise.res
 	};
 	const api = {
 		startGooglePhotosImport: () => start,
-		getGooglePhotosImport: () => get,
+		getGooglePhotosImport: () => typeof get === 'function' ? get() : get,
 		cancelGooglePhotosImport: async (id) => {
 			cancellations.push(id);
 			return { data: importJob({ id, status: 'cancelled' }) };
@@ -117,12 +117,52 @@ test('rapid starts keep one pending Picker request and popup', async () => {
 	assert.equal(fixture.updates.filter(({ value }) => value.status === 'starting').length, 1);
 });
 
-test('polling uses the backend interval for initial and subsequent checks', async () => {
-	const fixture = setup({ start: Promise.resolve({ data: importJob({ pollIntervalMs: 1234 }) }) });
+test('polling uses the newest backend interval for the next check', async () => {
+	const fixture = setup({
+		start: Promise.resolve({ data: importJob({ pollIntervalMs: 1234 }) }),
+		get: Promise.resolve({ data: importJob({ pollIntervalMs: 5678 }) }),
+	});
 	await fixture.lifecycle.start(ACCOUNT);
 	await fixture.runTimer();
 
-	assert.deepEqual(fixture.timerDelays, [1234, 1234]);
+	assert.deepEqual(fixture.timerDelays, [1234, 5678]);
+});
+
+test('a stale waiting poll after Picker autoclose does not cancel a selected import', async () => {
+	const stale = deferred();
+	let pollCount = 0;
+	const fixture = setup({
+		get: () => {
+			pollCount += 1;
+			return pollCount === 1
+				? stale.promise
+				: Promise.resolve({ data: importJob({ status: 'importing', total: 1 }) });
+		},
+	});
+	await fixture.lifecycle.start(ACCOUNT);
+	const firstPoll = fixture.runTimer();
+	await Promise.resolve();
+	fixture.windows[0].closed = true;
+	stale.resolve({ data: importJob() });
+	await firstPoll;
+
+	assert.deepEqual(fixture.cancellations, []);
+	await fixture.runTimer();
+	assert.deepEqual(fixture.cancellations, []);
+	assert.equal(fixture.updates.at(-1).value.status, 'importing');
+});
+
+test('two consecutive closed-window waiting polls cancel an abandoned Picker', async () => {
+	const fixture = setup();
+	await fixture.lifecycle.start(ACCOUNT);
+	fixture.windows[0].closed = true;
+
+	await fixture.runTimer();
+	assert.deepEqual(fixture.cancellations, []);
+	await fixture.runTimer();
+
+	assert.deepEqual(fixture.cancellations, ['import-1']);
+	assert.equal(fixture.updates.at(-1).value.status, 'cancelled');
 });
 
 test('dispose during Picker POST cancels a late import without opening resources', async () => {
@@ -177,6 +217,28 @@ test('a failed job preserves its sanitized error and refreshes the account', asy
 	assert.deepEqual(terminal.errors, ['Google authorization was revoked']);
 	assert.equal(getGooglePhotosImportSummary(terminal, { failed: () => 'Import failed' }), 'Google authorization was revoked');
 	assert.deepEqual(fixture.refreshes, ['account-1']);
+});
+
+test('terminal summaries include every failed file name and sanitized message', () => {
+	const messages = {
+		partial: ({ completed, failed }) => `Imported ${completed}; ${failed} failed.`,
+		failed: () => 'Import failed.',
+	};
+	const errors = [
+		{ fileName: 'family.jpg', message: 'Storage quota exceeded' },
+		{ fileName: 'holiday.mp4', message: 'Rate limit exceeded' },
+	];
+
+	assert.equal(
+		getGooglePhotosImportSummary(importJob({
+			status: 'completed_with_errors', completed: 1, failed: 2, errors,
+		}), messages),
+		'Imported 1; 2 failed.\nfamily.jpg: Storage quota exceeded\nholiday.mp4: Rate limit exceeded',
+	);
+	assert.equal(
+		getGooglePhotosImportSummary(importJob({ status: 'failed', failed: 2, errors }), messages),
+		'family.jpg: Storage quota exceeded\nholiday.mp4: Rate limit exceeded',
+	);
 });
 
 test('a blocked popup reports an error without creating a backend import', async () => {
