@@ -270,7 +270,7 @@ export class GoogleDriveAdapter extends BaseCloudAdapter {
 		};
 	}
 
-	async uploadStream({ stream, fileName, mimeType, virtualPath, remoteParentId, onProgress }) {
+	async uploadStream({ stream, fileName, mimeType, virtualPath, remoteParentId, onProgress, signal }) {
 		const drive = await this.getDriveClient();
 		const parentId = remoteParentId || await this.ensureRemotePath(virtualPath);
 		const progressStream = this.createProgressStream(onProgress);
@@ -290,6 +290,7 @@ export class GoogleDriveAdapter extends BaseCloudAdapter {
 			},
 			{
 				maxBodyLength: Infinity,
+				signal,
 			},
 		);
 
