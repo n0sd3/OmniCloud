@@ -24,6 +24,9 @@ public final class HeadlessServerTest {
 
     public static void main(String[] args) throws Exception {
         HttpServer content = contentServer(CONTENT);
+        HttpServer transientFailure = statusServer(503);
+        HttpServer missing = statusServer(404);
+        HttpServer quota = statusServer(509);
         HttpServer server = HeadlessServer.create(0, SECRET, transfer(url(content)));
         server.start();
         try {
@@ -75,11 +78,20 @@ public final class HeadlessServerTest {
             assertError(400, request(server, "POST", "/stream", "Bearer " + SECRET,
                     "{\"source\":\"resolved\",\"download_url\":\"" + DOWNLOAD_URL + "\",\"file_key\":\"" + FILE_KEY
                             + "\",\"file_name\":\"empty.bin\",\"size\":0,\"range\":{\"start\":0,\"end\":0}}"), "INVALID_INPUT");
+            assertError(502, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    resolvedRangeJson(url(transientFailure))), "UPSTREAM");
+            assertError(404, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    resolvedRangeJson(url(missing))), "NOT_FOUND");
+            assertError(429, request(server, "POST", "/stream", "Bearer " + SECRET,
+                    resolvedRangeJson(url(quota))), "QUOTA");
             assertError(429, request(server, "POST", "/stream", "Bearer " + SECRET,
                     "{\"source\":\"public\",\"link\":\"" + QUOTA_LINK + "\",\"range\":{\"start\":0,\"end\":9}}"), "QUOTA");
         } finally {
             server.stop(0);
             content.stop(0);
+            transientFailure.stop(0);
+            missing.stop(0);
+            quota.stop(0);
         }
         assertNoExecutorThreads();
         System.out.println("HeadlessServerTest OK");
@@ -127,6 +139,10 @@ public final class HeadlessServerTest {
         String key = eightWordKey();
         byte[] ciphertext = CryptTools.genCrypter("AES", "AES/CTR/NoPadding", CryptTools.initMEGALinkKey(key), CryptTools.initMEGALinkKeyIV(key)).doFinal(plaintext);
         return server(exchange -> write(exchange, 200, ciphertext));
+    }
+
+    private static HttpServer statusServer(int status) throws IOException {
+        return server(exchange -> write(exchange, status, new byte[0]));
     }
 
     private static HttpServer server(ExchangeHandler handler) throws IOException {

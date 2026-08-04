@@ -47,8 +47,17 @@ export function createMegaBasterdClient({
 			throw new MegaBasterdError('UNAVAILABLE');
 		}
 
-		const timeoutSignal = AbortSignal.timeout(timeoutMs);
-		const requestSignal = AbortSignal.any([signal, timeoutSignal].filter(Boolean));
+		const requestController = new AbortController();
+		let timedOut = false;
+		const abortFromCaller = () => requestController.abort(signal?.reason);
+		if (signal?.aborted) abortFromCaller();
+		else signal?.addEventListener('abort', abortFromCaller, { once: true });
+		const timeout = setTimeout(() => {
+			timedOut = true;
+			requestController.abort();
+		}, timeoutMs);
+		timeout.unref?.();
+		const cleanup = () => signal?.removeEventListener('abort', abortFromCaller);
 		let response;
 		try {
 			response = await fetchImpl(new URL(path, baseUrl), {
@@ -58,13 +67,16 @@ export function createMegaBasterdClient({
 					...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
 				},
 				body: body === undefined ? undefined : JSON.stringify(body),
-				signal: requestSignal,
+				signal: requestController.signal,
 			});
 		} catch (error) {
+			clearTimeout(timeout);
+			cleanup();
 			if (signal?.aborted) throw new MegaBasterdError('CANCELLED');
-			if (timeoutSignal.aborted) throw new MegaBasterdError('TIMEOUT');
+			if (timedOut) throw new MegaBasterdError('TIMEOUT');
 			throw new MegaBasterdError('UNAVAILABLE');
 		}
+		clearTimeout(timeout);
 
 		if (!response.ok) {
 			let payload = null;
@@ -73,6 +85,8 @@ export function createMegaBasterdClient({
 			} catch {
 				// Error bodies are optional; status mapping remains safe.
 			}
+			cleanup();
+			if (signal?.aborted) throw new MegaBasterdError('CANCELLED');
 			const responseCode = typeof payload?.code === 'string' && SAFE_CODES.has(payload.code)
 				? payload.code
 				: null;
@@ -90,12 +104,18 @@ export function createMegaBasterdClient({
 				return await response.json();
 			} catch {
 				if (signal?.aborted) throw new MegaBasterdError('CANCELLED');
-				if (timeoutSignal.aborted) throw new MegaBasterdError('TIMEOUT');
 				throw new MegaBasterdError('UPSTREAM');
+			} finally {
+				cleanup();
 			}
 		}
-		if (!response.body) throw new MegaBasterdError('UPSTREAM');
-		return Readable.fromWeb(response.body);
+		if (!response.body) {
+			cleanup();
+			throw new MegaBasterdError('UPSTREAM');
+		}
+		const readable = Readable.fromWeb(response.body);
+		readable.once('close', cleanup);
+		return readable;
 	}
 
 	return {

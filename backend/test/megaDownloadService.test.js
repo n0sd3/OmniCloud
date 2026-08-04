@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { once } from 'node:events';
 import { Readable } from 'node:stream';
 import test from 'node:test';
 
-import { MegaBasterdError } from '../src/services/megaBasterdClient.js';
+import { createMegaBasterdClient, MegaBasterdError } from '../src/services/megaBasterdClient.js';
 import { createMegaDownloadService, normalizeMegaFileLink } from '../src/services/megaDownloadService.js';
 import { env, redactEnv } from '../src/config/env.js';
 
@@ -11,6 +12,23 @@ async function read(stream) {
 	const chunks = [];
 	for await (const chunk of stream) chunks.push(Buffer.from(chunk));
 	return Buffer.concat(chunks).toString('utf8');
+}
+
+async function sidecar(status, code) {
+	const server = http.createServer((_request, response) => {
+		response.writeHead(status, { 'Content-Type': 'application/json' });
+		response.end(JSON.stringify({ code }));
+	});
+	server.listen(0, '127.0.0.1');
+	await once(server, 'listening');
+	return {
+		server,
+		client: createMegaBasterdClient({
+			baseUrl: `http://127.0.0.1:${server.address().port}`,
+			secret: 'test-secret',
+			timeoutMs: 1000,
+		}),
+	};
 }
 
 test('MEGA file link normalization accepts modern and legacy links', () => {
@@ -64,6 +82,22 @@ test('sidecar unavailability falls back exactly once', async () => {
 	assert.equal(fallbackCalls, 1);
 });
 
+test('pre-byte transient sidecar failure falls back exactly once through the real client', async (t) => {
+	const fixture = await sidecar(502, 'UPSTREAM');
+	t.after(() => fixture.server.close());
+	let fallbackCalls = 0;
+	const service = createMegaDownloadService({ client: fixture.client });
+	const stream = await service.streamResolved({ downloadUrl: 'https://signed.example/file' }, {
+		fallback: async () => {
+			fallbackCalls += 1;
+			return Readable.from(['fallback']);
+		},
+	});
+
+	assert.equal(await read(stream), 'fallback');
+	assert.equal(fallbackCalls, 1);
+});
+
 test('quota is terminal', async () => {
 	const service = createMegaDownloadService({
 		client: {
@@ -76,6 +110,21 @@ test('quota is terminal', async () => {
 	await assert.rejects(service.streamResolved({}, {
 		fallback: async () => { throw new Error('fallback must not run'); },
 	}), /quota/i);
+});
+
+test('pre-byte quota never falls back through the real client', async (t) => {
+	const fixture = await sidecar(429, 'QUOTA');
+	t.after(() => fixture.server.close());
+	let fallbackCalls = 0;
+	const service = createMegaDownloadService({ client: fixture.client });
+
+	await assert.rejects(service.streamResolved({}, {
+		fallback: async () => {
+			fallbackCalls += 1;
+			return Readable.from(['fallback']);
+		},
+	}), (error) => error.code === 'QUOTA' && error.fallbackEligible === false);
+	assert.equal(fallbackCalls, 0);
 });
 
 test('fallback can be disabled for eligible initial sidecar errors', async () => {

@@ -106,20 +106,22 @@ public final class HeadlessServer {
                 throw new IllegalArgumentException("invalid range");
             }
             long length = end - start + 1;
-            exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + headerFileName(request.transfer.fileName) + "\"");
-            exchange.getResponseHeaders().set("Content-Type", MIME_TYPE);
-            exchange.getResponseHeaders().set("Accept-Ranges", "bytes");
-            exchange.getResponseHeaders().set("Content-Length", String.valueOf(length));
-            if (request.range != null) {
-                exchange.getResponseHeaders().set("Content-Range", "bytes " + start + "-" + end + "/" + request.transfer.size);
-            }
-            exchange.sendResponseHeaders(request.range == null ? 200 : 206, length);
-            try {
-                transfer.streamResolved(request.transfer, request.range, exchange.getResponseBody());
-            } catch (HeadlessTransferException ignored) {
-                // Headers may already be on the wire; closing is the only safe response.
-            } finally {
-                exchange.close();
+            try (HeadlessTransfer.PreparedTransfer prepared = transfer.prepareResolved(request.transfer, request.range)) {
+                exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + headerFileName(request.transfer.fileName) + "\"");
+                exchange.getResponseHeaders().set("Content-Type", MIME_TYPE);
+                exchange.getResponseHeaders().set("Accept-Ranges", "bytes");
+                exchange.getResponseHeaders().set("Content-Length", String.valueOf(length));
+                if (request.range != null) {
+                    exchange.getResponseHeaders().set("Content-Range", "bytes " + start + "-" + end + "/" + request.transfer.size);
+                }
+                exchange.sendResponseHeaders(request.range == null ? 200 : 206, length);
+                try {
+                    prepared.streamTo(exchange.getResponseBody());
+                } catch (HeadlessTransferException ignored) {
+                    // Headers may already be on the wire; closing is the only safe response.
+                } finally {
+                    exchange.close();
+                }
             }
         } catch (HeadlessTransferException error) {
             error(exchange, status(error), error.getCode().name());

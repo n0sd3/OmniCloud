@@ -131,6 +131,36 @@ test('MegaBasterd client sends resolved range JSON and returns a Node readable',
 	assert.equal(await read(stream), '789abcdef');
 });
 
+test('MegaBasterd client timeout stops after stream headers arrive', async (t) => {
+	const fixture = await startServer((_request, response) => {
+		response.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+		response.write('first-');
+		setTimeout(() => response.end('last'), 80);
+	});
+	t.after(() => fixture.server.close());
+	const client = createMegaBasterdClient({ baseUrl: fixture.baseUrl, secret: 'test-secret', timeoutMs: 30 });
+
+	assert.equal(await read(await client.streamPublic('https://mega.nz/file/id#key')), 'first-last');
+});
+
+test('MegaBasterd client caller abort remains active after stream headers arrive', async (t) => {
+	const fixture = await startServer((_request, response) => {
+		response.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+		response.write('first-');
+		setTimeout(() => response.end('last'), 200);
+	});
+	t.after(() => {
+		fixture.server.closeAllConnections();
+		fixture.server.close();
+	});
+	const client = createMegaBasterdClient({ baseUrl: fixture.baseUrl, secret: 'test-secret', timeoutMs: 1000 });
+	const controller = new AbortController();
+	const stream = await client.streamPublic('https://mega.nz/file/id#key', { signal: controller.signal });
+	controller.abort();
+
+	await assert.rejects(read(stream), (error) => error.name === 'AbortError');
+});
+
 test('MegaBasterd client sends canonical public links to the stream endpoint', async (t) => {
 	const fixture = await startServer(async (request, response) => {
 		assert.deepEqual(await readBody(request), {

@@ -48,11 +48,21 @@ public final class HeadlessTransfer {
     }
 
     public void streamResolved(ResolvedTransfer transfer, ByteRange range, OutputStream output) throws HeadlessTransferException {
-        if (transfer == null || output == null) {
+        if (output == null) {
             throw new HeadlessTransferException(HeadlessTransferException.Code.INVALID_INPUT, "transfer and output are required");
         }
-        if (transfer.size == 0 && range == null) {
+        if (transfer != null && transfer.size == 0 && range == null) {
             return;
+        }
+
+        try (PreparedTransfer prepared = prepareResolved(transfer, range)) {
+            prepared.streamTo(output);
+        }
+    }
+
+    public PreparedTransfer prepareResolved(ResolvedTransfer transfer, ByteRange range) throws HeadlessTransferException {
+        if (transfer == null) {
+            throw new HeadlessTransferException(HeadlessTransferException.Code.INVALID_INPUT, "transfer is required");
         }
 
         long requestedStart = range == null ? 0 : range.start;
@@ -87,22 +97,22 @@ public final class HeadlessTransfer {
                     alignedStart == 0
                             ? CryptTools.initMEGALinkKeyIV(transfer.fileKey)
                             : CryptTools.forwardMEGALinkKeyIV(CryptTools.initMEGALinkKeyIV(transfer.fileKey), alignedStart));
-            try (InputStream encrypted = connection.getInputStream(); CipherInputStream decrypted = new CipherInputStream(encrypted, cipher)) {
-                skipExactly(decrypted, skip);
-                copyExactly(decrypted, output, requestedEnd - requestedStart + 1);
-            }
-        } catch (CopyCancelled error) {
-            throw new HeadlessTransferException(HeadlessTransferException.Code.CANCELLED, "Output stream closed", error);
+            return new PreparedTransfer(connection, new CipherInputStream(connection.getInputStream(), cipher), skip, requestedEnd - requestedStart + 1);
         } catch (HeadlessTransferException error) {
-            throw error;
-        } catch (IOException error) {
-            throw new HeadlessTransferException(HeadlessTransferException.Code.UPSTREAM, "Unable to stream MEGA file", error);
-        } catch (Exception error) {
-            throw new HeadlessTransferException(HeadlessTransferException.Code.UPSTREAM, "Unable to decrypt MEGA file", error);
-        } finally {
             if (connection != null) {
                 connection.disconnect();
             }
+            throw error;
+        } catch (IOException error) {
+            if (connection != null) {
+                connection.disconnect();
+            }
+            throw new HeadlessTransferException(HeadlessTransferException.Code.UPSTREAM, "Unable to stream MEGA file", error);
+        } catch (Exception error) {
+            if (connection != null) {
+                connection.disconnect();
+            }
+            throw new HeadlessTransferException(HeadlessTransferException.Code.UPSTREAM, "Unable to decrypt MEGA file", error);
         }
     }
 
@@ -207,6 +217,47 @@ public final class HeadlessTransfer {
             this.fileKey = fileKey;
             this.fileName = fileName;
             this.size = size;
+        }
+    }
+
+    public static final class PreparedTransfer implements AutoCloseable {
+        private final HttpURLConnection connection;
+        private final CipherInputStream decrypted;
+        private final int skip;
+        private final long length;
+
+        private PreparedTransfer(HttpURLConnection connection, CipherInputStream decrypted, int skip, long length) {
+            this.connection = connection;
+            this.decrypted = decrypted;
+            this.skip = skip;
+            this.length = length;
+        }
+
+        public void streamTo(OutputStream output) throws HeadlessTransferException {
+            if (output == null) {
+                throw new HeadlessTransferException(HeadlessTransferException.Code.INVALID_INPUT, "output is required");
+            }
+            try {
+                skipExactly(decrypted, skip);
+                copyExactly(decrypted, output, length);
+            } catch (CopyCancelled error) {
+                throw new HeadlessTransferException(HeadlessTransferException.Code.CANCELLED, "Output stream closed", error);
+            } catch (HeadlessTransferException error) {
+                throw error;
+            } catch (IOException error) {
+                throw new HeadlessTransferException(HeadlessTransferException.Code.UPSTREAM, "Unable to stream MEGA file", error);
+            }
+        }
+
+        @Override
+        public void close() {
+            try {
+                decrypted.close();
+            } catch (IOException ignored) {
+                // Disconnecting below releases the upstream connection.
+            } finally {
+                connection.disconnect();
+            }
         }
     }
 
