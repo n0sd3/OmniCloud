@@ -16,7 +16,11 @@ function durationMs(duration) {
 }
 
 function errorMessage(error) {
-	return error?.response?.data?.error?.message || error?.message || 'Google Photos Picker request failed';
+	const message = error?.response?.data?.error?.message || error?.message;
+	if (!message || /https?:\/\/|\b(?:access_?token|refresh_?token|id_?token|token|authorization)\b\s*(?:[=:]\s*|\s+)\S+|\bbearer\s+\S+/i.test(message)) {
+		return 'Google Photos Picker request failed';
+	}
+	return message;
 }
 
 function credentialsFor(account) {
@@ -53,6 +57,7 @@ export function createGooglePhotosImportService({
 	emitEvent = emitUploadEvent,
 	sync = syncAccount,
 	markStatus = markAccountStatus,
+	runImport = async () => {},
 	now = Date.now,
 } = {}) {
 	const jobs = new Map();
@@ -102,10 +107,6 @@ export function createGooglePhotosImportService({
 		return items;
 	}
 
-	async function runImport() {
-		// Task 3 adds the bounded stream transfer before this job can finish.
-	}
-
 	async function start(userId, accountId) {
 		const account = await getAccount(userId, accountId);
 		if (!account || account.provider !== 'google_drive') throw new Error('Google Drive account is required');
@@ -148,16 +149,16 @@ export function createGooglePhotosImportService({
 		return sanitizeJob(job);
 	}
 
-	async function refresh(userId, importId) {
-		const job = getJob(userId, importId);
+	async function refreshJob(job) {
 		if (job.status !== 'waiting_for_selection') return sanitizeJob(job);
-		if (now() > job.timeoutAt) return cancel(userId, importId);
+		if (now() > job.timeoutAt) return cancelJob(job);
 
-		let data;
 		try {
-			({ data } = await job.oauthClient.request({ url: `${PICKER_API}/sessions/${job.pickerSessionId}` }));
+			const { data } = await job.oauthClient.request({ url: `${PICKER_API}/sessions/${job.pickerSessionId}` });
 			if (!data.mediaItemsSet) return sanitizeJob(job);
+			if (job.status !== 'waiting_for_selection') return sanitizeJob(job);
 			const items = await listAllPickedItems(job);
+			if (job.status !== 'waiting_for_selection') return sanitizeJob(job);
 			job.total = items.length;
 			job.status = items.length ? 'importing' : 'completed';
 			if (items.length) job.promise = runImport(job, items);
@@ -169,17 +170,33 @@ export function createGooglePhotosImportService({
 		return sanitizeJob(job);
 	}
 
+	function refresh(userId, importId) {
+		const job = getJob(userId, importId);
+		if (job.refreshPromise) return job.refreshPromise;
+		job.refreshPromise = (async () => {
+			try {
+				return await refreshJob(job);
+			} finally {
+				job.refreshPromise = null;
+			}
+		})();
+		return job.refreshPromise;
+	}
+
 	async function get(userId, importId) {
 		return sanitizeJob(getJob(userId, importId));
 	}
 
-	async function cancel(userId, importId) {
-		const job = getJob(userId, importId);
+	async function cancelJob(job) {
 		if (job.status !== 'cancelled') {
 			job.status = 'cancelled';
 			await deletePickerSession(job);
 		}
 		return sanitizeJob(job);
+	}
+
+	function cancel(userId, importId) {
+		return cancelJob(getJob(userId, importId));
 	}
 
 	return { start, refresh, get, cancel };

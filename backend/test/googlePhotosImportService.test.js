@@ -15,6 +15,7 @@ const {
 
 function createTestService({
 	request,
+	runImport,
 	now = () => 0,
 	account = {
 		id: 'drive-1',
@@ -30,6 +31,7 @@ function createTestService({
 	return createGooglePhotosImportService({
 		getAccount: () => account,
 		createAdapter: () => ({ createOAuthClient: () => ({ request }) }),
+		runImport,
 		now,
 	});
 }
@@ -71,6 +73,30 @@ test('start rejects another provider before contacting Google', async () => {
 	await assert.rejects(service.start('u1', 'a1'), /Google Drive account is required/);
 });
 
+test('start rejects an inactive Google Drive account before contacting Google', async () => {
+	const service = createTestService({
+		account: {
+			id: 'drive-1', user_id: 'u1', provider: 'google_drive', status: 'invalid_token',
+			credentials: { scope: 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly' },
+		},
+		request: () => { throw new Error('must not run'); },
+	});
+
+	await assert.rejects(service.start('u1', 'drive-1'), /must be active/);
+});
+
+test('start rejects a scope that only contains the Picker scope as a substring', async () => {
+	const service = createTestService({
+		account: {
+			id: 'drive-1', user_id: 'u1', provider: 'google_drive', status: 'active',
+			credentials: { scope: 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly.extra' },
+		},
+		request: () => { throw new Error('must not run'); },
+	});
+
+	await assert.rejects(service.start('u1', 'drive-1'), /requires reconnecting/);
+});
+
 test('start creates a sanitized waiting job from the Picker session', async () => {
 	const request = async () => ({ data: {
 		id: 'picker-1', pickerUri: 'https://photos.google.com/picker/abc',
@@ -86,8 +112,24 @@ test('start creates a sanitized waiting job from the Picker session', async () =
 	});
 });
 
+test('start replaces URL and token-bearing Google errors with a controlled message', async () => {
+	const service = createTestService({
+		request: async () => {
+			throw { response: { data: { error: {
+				message: 'GET https://photos.example/picker?access_token=secret-token',
+			} } } };
+		},
+	});
+
+	await assert.rejects(
+		service.start('u1', 'drive-1'),
+		(error) => error.message === 'Google Photos Picker request failed',
+	);
+});
+
 test('refresh lists every Picker page before marking the job importing', async () => {
 	const requests = [];
+	const operations = [];
 	const request = async (options) => {
 		requests.push(options);
 		if (options.method === 'POST') return { data: {
@@ -95,16 +137,21 @@ test('refresh lists every Picker page before marking the job importing', async (
 			pollingConfig: { pollInterval: '3s', timeoutIn: '180s' },
 		} };
 		if (options.url.endsWith('/sessions/picker-1')) return { data: { mediaItemsSet: true } };
-		if (!options.params.pageToken) return { data: { mediaItems: [{ id: 'one' }], nextPageToken: 'next' } };
+		if (!options.params.pageToken) {
+			operations.push('page one');
+			return { data: { mediaItems: [{ id: 'one' }], nextPageToken: 'next' } };
+		}
+		operations.push('page two');
 		return { data: { mediaItems: [{ id: 'two' }] } };
 	};
-	const service = createTestService({ request });
+	const service = createTestService({ request, runImport: async () => operations.push('import') });
 	const job = await service.start('u1', 'drive-1');
 	const refreshed = await service.refresh('u1', job.id);
 
 	assert.equal(refreshed.status, 'importing');
 	assert.equal(refreshed.total, 2);
 	assert.deepEqual(requests.slice(-2).map((options) => options.params.pageToken || null), [null, 'next']);
+	assert.deepEqual(operations, ['page one', 'page two', 'import']);
 });
 
 test('refresh page failure leaves the job waiting without uploads', async () => {
@@ -118,7 +165,7 @@ test('refresh page failure leaves the job waiting without uploads', async () => 
 		if (!options.params.pageToken) return { data: { mediaItems: [{ id: 'one' }], nextPageToken: 'next' } };
 		throw new Error('second page unavailable');
 	};
-	const service = createTestService({ request });
+	const service = createTestService({ request, runImport: async () => uploaded.push('file') });
 	const job = await service.start('u1', 'drive-1');
 
 	await assert.rejects(service.refresh('u1', job.id), /second page unavailable/);
@@ -126,6 +173,47 @@ test('refresh page failure leaves the job waiting without uploads', async () => 
 	const current = await service.get('u1', job.id);
 	assert.equal(current.status, 'waiting_for_selection');
 	assert.equal(current.total, 0);
+});
+
+test('concurrent refreshes invoke the import callback only once', async () => {
+	let imports = 0;
+	const request = async (options) => {
+		if (options.method === 'POST') return { data: {
+			id: 'picker-1', pickerUri: 'https://photos.google.com/picker/abc',
+			pollingConfig: { pollInterval: '3s', timeoutIn: '180s' },
+		} };
+		if (options.url.endsWith('/sessions/picker-1')) return { data: { mediaItemsSet: true } };
+		return { data: { mediaItems: [{ id: 'one' }] } };
+	};
+	const service = createTestService({ request, runImport: async () => { imports += 1; } });
+	const job = await service.start('u1', 'drive-1');
+
+	await Promise.all([service.refresh('u1', job.id), service.refresh('u1', job.id)]);
+	assert.equal(imports, 1);
+});
+
+test('cancel wins over a refresh already waiting on Picker', async () => {
+	let releaseSession;
+	const sessionResponse = new Promise((resolve) => { releaseSession = resolve; });
+	let imports = 0;
+	const request = async (options) => {
+		if (options.method === 'POST') return { data: {
+			id: 'picker-1', pickerUri: 'https://photos.google.com/picker/abc',
+			pollingConfig: { pollInterval: '3s', timeoutIn: '180s' },
+		} };
+		if (options.method === 'DELETE') return { data: {} };
+		if (options.url.endsWith('/sessions/picker-1')) return sessionResponse;
+		return { data: { mediaItems: [{ id: 'one' }] } };
+	};
+	const service = createTestService({ request, runImport: async () => { imports += 1; } });
+	const job = await service.start('u1', 'drive-1');
+	const refresh = service.refresh('u1', job.id);
+	await Promise.resolve();
+	await service.cancel('u1', job.id);
+	releaseSession({ data: { mediaItemsSet: true } });
+
+	assert.equal((await refresh).status, 'cancelled');
+	assert.equal(imports, 0);
 });
 
 test('timeout cancels the Picker session', async () => {
@@ -165,4 +253,20 @@ test('cancel deletes the Picker session once and returns cancelled', async () =>
 	assert.equal((await service.cancel('u1', job.id)).status, 'cancelled');
 	await service.cancel('u1', job.id);
 	assert.equal(requests.filter((options) => options.method === 'DELETE').length, 1);
+});
+
+test('cancel exposes a controlled error when Picker deletion returns a token-bearing URL', async () => {
+	const request = async (options) => {
+		if (options.method === 'POST') return { data: {
+			id: 'picker-1', pickerUri: 'https://photos.google.com/picker/abc',
+			pollingConfig: { pollInterval: '3s', timeoutIn: '180s' },
+		} };
+		throw { response: { data: { error: {
+			message: 'DELETE https://photos.example/session?token=secret-token',
+		} } } };
+	};
+	const service = createTestService({ request });
+	const job = await service.start('u1', 'drive-1');
+
+	assert.deepEqual((await service.cancel('u1', job.id)).errors, ['Google Photos Picker request failed']);
 });
