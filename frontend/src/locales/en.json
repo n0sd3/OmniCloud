@@ -384,7 +384,8 @@
 		"googlePhotosReconnect": "Reconnect this Google Drive account to authorize Google Photos Picker.",
 		"googlePhotosCancelled": "Google Photos import cancelled.",
 		"googlePhotosImportCounts": "{total} selected · {completed} complete · {failed} failed",
-		"googlePhotosPopupBlocked": "Please allow pop-ups to import from Google Photos."
+		"googlePhotosPopupBlocked": "Please allow pop-ups to import from Google Photos.",
+		"googlePhotosImportFailed": "Google Photos import failed."
 	},
 	"allocation": {
 		"title": "Storage allocation",

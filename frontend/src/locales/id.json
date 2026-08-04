@@ -384,7 +384,8 @@
 		"googlePhotosReconnect": "Sambungkan kembali akun Google Drive ini untuk mengizinkan Google Photos Picker.",
 		"googlePhotosCancelled": "Impor Google Foto dibatalkan.",
 		"googlePhotosImportCounts": "{total} dipilih · {completed} selesai · {failed} gagal",
-		"googlePhotosPopupBlocked": "Izinkan pop-up untuk mengimpor dari Google Foto."
+		"googlePhotosPopupBlocked": "Izinkan pop-up untuk mengimpor dari Google Foto.",
+		"googlePhotosImportFailed": "Impor Google Foto gagal."
 	},
 	"allocation": {
 		"title": "Alokasi penyimpanan",

@@ -26,6 +26,7 @@ import TruncateMarquee from '../components/TruncateMarquee.vue';
 import { useAccountManagementStore } from '../stores/accountManagement';
 import { api } from '../services/api';
 import { formatBytesStrict, providerIcon, providerLabel } from '../composables/useFormatFile.js';
+import { createGooglePhotosImportLifecycle, getGooglePhotosImportSummary } from '../composables/useGooglePhotosImportLifecycle.js';
 import { useStorageStats } from '../composables/useStorageStats.js';
 
 const { t } = useI18n();
@@ -44,7 +45,6 @@ const isMegaModalOpen = ref(false);
 const isPCloudModalOpen = ref(false);
 const isS3ModalOpen = ref(false);
 const photoImports = ref({});
-const photoImportWatches = new Map();
 const TERMINAL_PHOTO_IMPORT_STATUSES = new Set(['completed', 'completed_with_errors', 'failed', 'cancelled']);
 
 const ALLOCATION_STRATEGIES = ['round_robin', 'weighted_round_robin', 'least_used', 'most_free', 'manual'];
@@ -239,108 +239,39 @@ function isPhotoImportActive(accountId) {
 }
 
 function photoImportMessage(photoImport) {
-	if (photoImport.status === 'waiting_for_selection') return t('storage.waitingGooglePhotos');
-	if (photoImport.status === 'importing') {
-		return t('storage.importingGooglePhotos', { completed: photoImport.completed, total: photoImport.total });
-	}
-	if (photoImport.status === 'completed') return t('storage.googlePhotosImportComplete', { count: photoImport.completed });
-	if (photoImport.status === 'cancelled') return t('storage.googlePhotosCancelled');
-	return t('storage.googlePhotosImportPartial', { completed: photoImport.completed, failed: photoImport.failed });
+	return getGooglePhotosImportSummary(photoImport, {
+		waiting: () => t('storage.waitingGooglePhotos'),
+		importing: (value) => t('storage.importingGooglePhotos', { completed: value.completed, total: value.total }),
+		completed: (value) => t('storage.googlePhotosImportComplete', { count: value.completed }),
+		partial: (value) => t('storage.googlePhotosImportPartial', { completed: value.completed, failed: value.failed }),
+		cancelled: () => t('storage.googlePhotosCancelled'),
+		failed: () => t('storage.googlePhotosImportFailed'),
+	});
 }
 
-function stopPhotoImportWatch(accountId, { closeWindow = true } = {}) {
-	const watch = photoImportWatches.get(accountId);
-	if (!watch) return;
-
-	photoImportWatches.delete(accountId);
-	if (watch.timer) window.clearTimeout(watch.timer);
-	watch.socket?.close();
-	if (closeWindow && !watch.pickerWindow?.closed) watch.pickerWindow.close();
-}
-
-function updatePhotoImport(account, watch, update) {
-	if (photoImportWatches.get(account.id) !== watch) return false;
-
-	const photoImport = { ...photoImports.value[account.id], ...update };
-	photoImports.value = { ...photoImports.value, [account.id]: photoImport };
-	if (!TERMINAL_PHOTO_IMPORT_STATUSES.has(photoImport.status)) return true;
-
-	stopPhotoImportWatch(account.id);
-	if (Number(photoImport.completed) > 0) {
+const photoImportLifecycle = createGooglePhotosImportLifecycle({
+	api,
+	browser: window,
+	onUpdate: (accountId, photoImport) => {
+		photoImports.value = { ...photoImports.value, [accountId]: photoImport };
+	},
+	onError: (_accountId, error) => {
+		actionError.value = error === 'popup-blocked'
+			? t('storage.googlePhotosPopupBlocked')
+			: /reconnect/i.test(error.message)
+				? t('storage.googlePhotosReconnect')
+				: error.message;
+	},
+	onRefresh: () => {
 		accountStore.loadAccounts().catch((error) => {
 			actionError.value = error.message;
 		});
-	}
-	return false;
-}
+	},
+});
 
-function watchPhotoImport(account, photoImport, pickerWindow) {
-	stopPhotoImportWatch(account.id, { closeWindow: false });
-	const watch = {
-		importId: photoImport.id,
-		pickerWindow,
-		timer: null,
-		socket: api.createUploadSocket(photoImport.id),
-	};
-	const pollIntervalMs = Math.max(0, Number(photoImport.pollIntervalMs) || 1000);
-	photoImportWatches.set(account.id, watch);
-
-	watch.socket.onmessage = (event) => {
-		try {
-			const message = JSON.parse(event.data);
-			if (message.type?.startsWith('photos-import:')) updatePhotoImport(account, watch, message);
-		} catch {
-			// Ignore malformed socket messages; polling remains the fallback.
-		}
-	};
-
-	function schedulePoll() {
-		watch.timer = window.setTimeout(poll, pollIntervalMs);
-	}
-
-	async function poll() {
-		if (photoImportWatches.get(account.id) !== watch) return;
-		try {
-			const { data } = await api.getGooglePhotosImport(watch.importId);
-			if (!updatePhotoImport(account, watch, data)) return;
-
-			if (data.status === 'waiting_for_selection' && pickerWindow?.closed) {
-				const { data: cancelled } = await api.cancelGooglePhotosImport(watch.importId);
-				updatePhotoImport(account, watch, cancelled);
-				return;
-			}
-		} catch (error) {
-			if (photoImportWatches.get(account.id) === watch) actionError.value = error.message;
-		}
-
-		if (photoImportWatches.get(account.id) === watch) schedulePoll();
-	}
-
-	schedulePoll();
-}
-
-async function startGooglePhotosImport(account) {
-	const pickerWindow = window.open('', '_blank');
-	if (!pickerWindow) {
-		actionError.value = t('storage.googlePhotosPopupBlocked');
-		return;
-	}
-
-	let importId;
-	try {
-		actionError.value = '';
-		const { data } = await api.startGooglePhotosImport(account.id);
-		importId = data.id;
-		pickerWindow.location.replace(`${data.pickerUri}/autoclose`);
-		photoImports.value = { ...photoImports.value, [account.id]: data };
-		watchPhotoImport(account, data, pickerWindow);
-	} catch (error) {
-		pickerWindow.close();
-		if (importId) api.cancelGooglePhotosImport(importId).catch(() => {});
-		actionError.value = /reconnect/i.test(error.message)
-			? t('storage.googlePhotosReconnect')
-			: error.message;
-	}
+function startGooglePhotosImport(account) {
+	actionError.value = '';
+	return photoImportLifecycle.start(account);
 }
 
 async function reconnectAccount(account) {
@@ -653,12 +584,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-	for (const [accountId, watch] of photoImportWatches) {
-		if (photoImports.value[accountId]?.status === 'waiting_for_selection') {
-			api.cancelGooglePhotosImport(watch.importId).catch(() => {});
-		}
-		stopPhotoImportWatch(accountId);
-	}
+	photoImportLifecycle.dispose();
 });
 </script>
 
