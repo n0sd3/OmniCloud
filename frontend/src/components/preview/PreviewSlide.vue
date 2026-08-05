@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ImageRender from './renderers/ImageRender.vue';
 import MediaRender from './renderers/MediaRender.vue';
@@ -31,7 +31,32 @@ const RENDERERS = {
 const renderer = computed(() => RENDERERS[props.file.previewType] || FallbackRender);
 const state = ref('loading');
 
-watch(() => props.file.id, () => { state.value = 'loading'; });
+// I4: um video com codec que o browser nao decodifica pode nao disparar nem
+// 'loadeddata' nem 'error' - sem isso o slide gira para sempre em vez de
+// cair no cartao de download que o spec promete.
+const LOAD_TIMEOUT_MS = 20_000;
+let loadTimer = null;
+
+function clearLoadTimer() {
+	if (loadTimer) clearTimeout(loadTimer);
+	loadTimer = null;
+}
+
+function armLoadTimer() {
+	clearLoadTimer();
+	loadTimer = setTimeout(() => {
+		if (state.value === 'loading') state.value = 'error';
+	}, LOAD_TIMEOUT_MS);
+}
+
+// So conta o tempo enquanto o slide de fato monta um renderer (near) e ainda
+// esta carregando; um evento terminal ou o slide sair da janela cancela.
+watch([() => props.near, state], ([near, value]) => {
+	if (near && value === 'loading') armLoadTimer();
+	else clearLoadTimer();
+}, { immediate: true });
+
+onBeforeUnmount(clearLoadTimer);
 </script>
 
 <template>
