@@ -5,8 +5,11 @@ import { promisify } from 'node:util';
 import { env } from '../config/env.js';
 import { extensionOf } from '@omnicloud/shared';
 import { writeStreamToFile } from './fileConvert.js';
+import { getPreviewCacheKey } from './previewService.js';
 
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+// Mesmo teto dos outros services de preview (pdfPageService, previewService,
+// thumbnailService): nao ha razao pra listagem de arquivo aceitar 20x mais.
+const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_ENTRIES = 1000;
 const execFileAsync = promisify(execFile);
@@ -70,6 +73,14 @@ export async function listArchiveEntries({
 	if (Number(file.size || 0) > maxBytes) throw archiveError('File is too large for preview', 415);
 
 	await fs.mkdir(cacheDir, { recursive: true });
+	// Sufixo .entries.json: nao colide com os .pdf, .src.pdf, .p<n>.jpg e .jpg
+	// que os outros services de preview gravam sob a mesma chave de cache.
+	const cachePath = path.join(cacheDir, `${getPreviewCacheKey(userId, file)}.entries.json`);
+	try {
+		return JSON.parse(await fs.readFile(cachePath, 'utf8'));
+	} catch {
+	}
+
 	const tempDir = await fs.mkdtemp(path.join(cacheDir, '.tmp-archive-'));
 	try {
 		const inputPath = path.join(tempDir, 'source.archive');
@@ -81,10 +92,12 @@ export async function listArchiveEntries({
 			: await execute('7z', ['l', '-ba', inputPath], { timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
 
 		const parsed = tool === 'unzip' ? parseUnzipList(stdout) : parse7zList(stdout);
-		return {
+		const result = {
 			entries: parsed.slice(0, maxEntries),
 			truncated: parsed.length > maxEntries,
 		};
+		await fs.writeFile(cachePath, JSON.stringify(result));
+		return result;
 	} catch (error) {
 		if (error.statusCode) throw error;
 		throw archiveError('Archive listing failed', 422, error);

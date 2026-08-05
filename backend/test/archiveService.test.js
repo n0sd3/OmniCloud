@@ -112,3 +112,40 @@ test('listArchiveEntries truncates at maxEntries and reports truncated', async (
 	assert.equal(result.entries.length, 2);
 	assert.equal(result.truncated, true);
 });
+
+test('listArchiveEntries caches the listing and serves the second call without invoking the tool', async (t) => {
+	const cacheDir = await createCacheDir(t);
+	const stdout = `Archive:  sample.zip
+  Length      Date    Time    Name
+---------  ---------- -----   ----
+      612  2026-07-01 10:12   readme.md
+---------                     -------
+      612                     1 file`;
+
+	let calls = 0;
+	const execute = async () => {
+		calls += 1;
+		return { stdout };
+	};
+	const file = { file_name: 'sample.zip', size: 10 };
+
+	const first = await listArchiveEntries({
+		userId: 'user-1',
+		file,
+		openStream: fakeOpenStream(),
+		cacheDir,
+		execute,
+	});
+	assert.equal(calls, 1);
+	assert.deepEqual(first.entries, [{ name: 'readme.md', size: 612 }]);
+
+	const second = await listArchiveEntries({
+		userId: 'user-1',
+		file,
+		openStream: async () => { throw new Error('should not open the file on a cache hit'); },
+		cacheDir,
+		execute: async () => { throw new Error('should not invoke the tool on a cache hit'); },
+	});
+	assert.equal(calls, 1, 'the tool was not invoked again');
+	assert.deepEqual(second, first);
+});
