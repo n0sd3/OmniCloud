@@ -112,19 +112,20 @@ test('quota is terminal', async () => {
 	}), /quota/i);
 });
 
-test('pre-byte quota never falls back through the real client', async (t) => {
+test('pre-byte quota falls back exactly once through the real client', async (t) => {
 	const fixture = await sidecar(429, 'QUOTA');
 	t.after(() => fixture.server.close());
 	let fallbackCalls = 0;
 	const service = createMegaDownloadService({ client: fixture.client });
-
-	await assert.rejects(service.streamResolved({}, {
+	const stream = await service.streamResolved({ downloadUrl: 'https://signed.example/file' }, {
 		fallback: async () => {
 			fallbackCalls += 1;
 			return Readable.from(['fallback']);
 		},
-	}), (error) => error.code === 'QUOTA' && error.fallbackEligible === false);
-	assert.equal(fallbackCalls, 0);
+	});
+
+	assert.equal(await read(stream), 'fallback');
+	assert.equal(fallbackCalls, 1);
 });
 
 test('fallback can be disabled for eligible initial sidecar errors', async () => {

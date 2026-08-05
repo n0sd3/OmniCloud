@@ -1,6 +1,9 @@
 import { Readable } from 'node:stream';
 
-const FALLBACK_CODES = new Set(['UNAVAILABLE', 'TIMEOUT', 'UPSTREAM', 'UNSUPPORTED']);
+// QUOTA is fallback-eligible: the sidecar fetches signed URLs anonymously, so a 509
+// there doesn't mean the underlying MEGA account (used by the megajs fallback path) is
+// also throttled -- account-authenticated transfers get their own quota.
+const FALLBACK_CODES = new Set(['UNAVAILABLE', 'TIMEOUT', 'UPSTREAM', 'UNSUPPORTED', 'QUOTA']);
 const SAFE_CODES = new Set([
 	'INVALID_INPUT',
 	'NOT_FOUND',

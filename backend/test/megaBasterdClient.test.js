@@ -202,7 +202,7 @@ test('MegaBasterd client normalizes an empty range object to null', async (t) =>
 	assert.equal(await read(stream), 'full-file');
 });
 
-test('MegaBasterd client maps quota to a terminal safe error', async (t) => {
+test('MegaBasterd client maps quota to a fallback-eligible safe error', async (t) => {
 	const fixture = await startServer((_request, response) => {
 		response.writeHead(429, { 'Content-Type': 'application/json' });
 		response.end('{"code":"QUOTA"}');
@@ -213,7 +213,7 @@ test('MegaBasterd client maps quota to a terminal safe error', async (t) => {
 	await assert.rejects(client.inspectPublic('https://mega.nz/file/id#secret-key'), (error) => {
 		assert.ok(error instanceof MegaBasterdError);
 		assert.equal(error.code, 'QUOTA');
-		assert.equal(error.fallbackEligible, false);
+		assert.equal(error.fallbackEligible, true);
 		assert.doesNotMatch(error.message, /secret-key/);
 		return true;
 	});
@@ -222,13 +222,13 @@ test('MegaBasterd client maps quota to a terminal safe error', async (t) => {
 test('MegaBasterd client keeps a recognized terminal code terminal on sidecar 5xx', async (t) => {
 	const fixture = await startServer((_request, response) => {
 		response.writeHead(500, { 'Content-Type': 'application/json' });
-		response.end('{"code":"QUOTA"}');
+		response.end('{"code":"NOT_FOUND"}');
 	});
 	t.after(() => fixture.server.close());
 	const client = createMegaBasterdClient({ baseUrl: fixture.baseUrl, secret: 'test-secret', timeoutMs: 1000 });
 
 	await assert.rejects(client.inspectPublic('https://mega.nz/file/id#secret'), (error) => {
-		assert.equal(error.code, 'QUOTA');
+		assert.equal(error.code, 'NOT_FOUND');
 		assert.equal(error.fallbackEligible, false);
 		return true;
 	});
