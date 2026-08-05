@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canShowGridThumbnail } from '../src/composables/useFileType.js';
+import { canShowGridThumbnail, getFileCategory } from '../src/composables/useFileType.js';
 import { getThumbnailKind } from '../../backend/src/services/thumbnailService.js';
 
 const FIXTURES = [
@@ -26,14 +26,17 @@ function isImage(file) {
 }
 
 // canShowGridThumbnail promete "este arquivo tem uma fonte de imagem que
-// funciona". Para imagens essa fonte e api.previewUrl (PreviewThumbStrip e
-// FileListGridCard roteiam assim), nunca a rota /thumbnail — entao nao faz
-// sentido comparar imagem contra getThumbnailKind, que nunca tem branch de
-// imagem. Para o resto, a fonte e mesmo api.thumbnailUrl e por isso essa
-// parte tem que bater exatamente com getThumbnailKind.
-test('images can show a thumbnail without depending on getThumbnailKind', () => {
-	for (const file of FIXTURES.filter(isImage)) {
-		assert.equal(canShowGridThumbnail(file), true, file.file_name);
+// funciona". PreviewThumbStrip e FileListGridCard roteiam por
+// getFileCategory(file) === 'image' para api.previewUrl, e caem para
+// api.thumbnailUrl (que so serve o que getThumbnailKind sabe gerar) em
+// qualquer outro caso. Entao o invariante real e: toda fixture onde
+// canShowGridThumbnail promete uma miniatura tem que ter uma dessas duas
+// fontes de fato funcionando — nao basta ser imagem "de olho nu".
+test('every file canShowGridThumbnail approves has a working thumbnail source', () => {
+	for (const file of FIXTURES.filter((f) => canShowGridThumbnail(f))) {
+		const routesToPreviewUrl = getFileCategory(file) === 'image';
+		const backendSupportsThumbnail = Boolean(getThumbnailKind(file));
+		assert.ok(routesToPreviewUrl || backendSupportsThumbnail, file.file_name);
 	}
 });
 
