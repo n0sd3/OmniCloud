@@ -22,18 +22,21 @@ const { t } = useI18n();
 
 const chrome = usePreviewChrome();
 const dragStartY = ref(null);
+let dragFromScrollable = false;
 
 function onTouchStart(event) {
 	dragStartY.value = event.touches[0]?.clientY ?? null;
+	// Um toque que comeca dentro do scroll proprio de um renderer (PDF paginado,
+	// texto longo, lista de arquivos do arquivo) nao pode fechar o visualizador:
+	// o usuario esta rolando o conteudo, nao arrastando pra fechar.
+	dragFromScrollable = Boolean(event.target.closest?.('.overflow-y-auto, .overflow-auto'));
 }
 
 function onTouchEnd(event) {
 	const start = dragStartY.value;
 	dragStartY.value = null;
-	if (start === null) return;
+	if (start === null || dragFromScrollable) return;
 	const end = event.changedTouches[0]?.clientY ?? start;
-	// Imagem ampliada usa o arrasto para pan; fechar so quando o gesto e claro
-	// e vertical o bastante para nao competir com o swipe lateral.
 	if (end - start > 120) emit('close');
 }
 

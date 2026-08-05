@@ -22,12 +22,15 @@ function onWheelZoom(event) {
 	const next = zoom.value + (event.deltaY < 0 ? 0.25 : -0.25);
 	zoom.value = Math.min(4, Math.max(1, Number(next.toFixed(2))));
 }
-
-defineExpose({ isZoomed: () => zoom.value > 1 });
 </script>
 
 <template>
-	<div class="grid h-full place-items-center overflow-auto" @wheel="onWheelZoom">
+	<!-- overflow-auto so quando ampliada: e a mesma classe que o gesto de
+	     arrastar-para-fechar do visualizador usa (closest('.overflow-auto'))
+	     para saber que o toque comecou num conteudo com scroll proprio, entao
+	     zoom>1 basta pra suprimir o fechar-ao-arrastar sem precisar subir
+	     evento de estado por dois componentes. -->
+	<div class="grid h-full place-items-center" :class="zoom > 1 ? 'overflow-auto' : 'overflow-hidden'" @wheel="onWheelZoom">
 		<img
 			:src="api.previewUrl(props.file.id)"
 			class="max-h-full max-w-full origin-center object-contain transition-transform"
