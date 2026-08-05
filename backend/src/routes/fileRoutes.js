@@ -9,7 +9,7 @@ import { requireAppUser } from '../middleware/authMiddleware.js';
 import { generateThumbnail, getThumbnailKind } from '../services/thumbnailService.js';
 import { fileCacheService } from '../services/fileCacheService.js';
 import { parseRangeHeader } from '../services/webdav.js';
-import { effectivePreviewSource, getPreviewCacheKey, getPreviewKind, renderOfficePdf } from '../services/previewService.js';
+import { effectivePreviewSource, getPreviewCacheKey, getPreviewKind, needsImageConversion, renderImageJpeg, renderOfficePdf } from '../services/previewService.js';
 import { getPdfPageCount, renderPdfPage } from '../services/pdfPageService.js';
 import { listArchiveEntries } from '../services/archiveService.js';
 import { googleDocsExport, exportedFileName } from '../utils/mime.js';
@@ -377,6 +377,16 @@ router.get('/files/:id/preview', async (req, res, next) => {
 		res.setHeader('Content-Disposition', `inline; filename="${context.file.file_name}"`);
 		if (req.headers['if-none-match'] === etag) {
 			return res.status(304).end();
+		}
+
+		if (needsImageConversion(context.file)) {
+			const imagePath = await renderImageJpeg({
+				userId: req.user.id,
+				file: context.file,
+				openStream: openPreviewStream(req, context),
+			});
+			res.setHeader('Content-Type', 'image/jpeg');
+			return sendLocalPreview(req, res, imagePath);
 		}
 
 		if (kind === 'office') {

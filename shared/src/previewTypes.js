@@ -1,9 +1,9 @@
 // Mapa unico de tipo de preview. Front e back importam daqui: as duas listas
 // separadas divergiam em silencio e era isso que fazia o docx abrir em branco.
 
-// tif/tiff ficam fora ate a Task 10: sem conversao pra jpeg no backend, o browser
-// nao decodifica o <img> e a preview quebra silenciosamente.
-export const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
+// tif/tiff voltaram na Task 10: o backend converte pra jpeg antes de servir,
+// entao o browser nunca ve o formato original.
+export const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'jpeg', 'jpg', 'png', 'svg', 'tif', 'tiff', 'webp']);
 export const VIDEO_EXTENSIONS = new Set(['avi', 'm4v', 'mkv', 'mov', 'mp4', 'webm']);
 export const AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav']);
 export const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'odp', 'ods', 'odt', 'ppt', 'pptx', 'xls', 'xlsx']);

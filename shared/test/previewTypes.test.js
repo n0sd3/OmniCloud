@@ -30,9 +30,9 @@ test('an office mime beats a generic octet-stream mime on the extension', () => 
 	assert.equal(previewTypeFor({ mimeType: 'application/octet-stream', extension: 'xlsx' }), 'office');
 });
 
-test('tif/tiff are not classified as image yet, no backend conversion to render them', () => {
-	assert.equal(previewTypeFor({ extension: 'tif' }), null);
-	assert.equal(previewTypeFor({ mimeType: 'application/octet-stream', extension: 'tiff' }), null);
+test('tiff previews as image now that the backend converts it', () => {
+	assert.equal(previewTypeFor({ extension: 'tif' }), 'image');
+	assert.equal(previewTypeFor({ mimeType: 'application/octet-stream', extension: 'tiff' }), 'image');
 });
 
 test('archives are their own preview type', () => {
