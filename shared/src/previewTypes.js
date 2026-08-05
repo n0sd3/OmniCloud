@@ -15,6 +15,14 @@ export const TEXT_EXTENSIONS = new Set([
 ]);
 export const ARCHIVE_EXTENSIONS = new Set(['7z', 'bz2', 'gz', 'jar', 'rar', 'tar', 'tgz', 'xz', 'zip']);
 
+// Extensoes que thumbnailService sabe gerar capa. Front (canShowGridThumbnail)
+// e back (getThumbnailKind) tem que derivar exatamente destes conjuntos: foi
+// a divergencia de um deles listar mais do que o outro sabe gerar que deixava
+// .csv (generico) na tira de miniaturas pedir uma capa que o backend recusa.
+export const THUMBNAIL_VIDEO_EXTENSIONS = VIDEO_EXTENSIONS;
+export const THUMBNAIL_DOCUMENT_EXTENSIONS = OFFICE_EXTENSIONS;
+export const THUMBNAIL_TEXT_EXTENSIONS = new Set(['json', 'txt']);
+
 export function extensionOf(name) {
 	const parts = String(name || '').toLowerCase().split('.');
 	return parts.length > 1 ? parts.at(-1) : '';

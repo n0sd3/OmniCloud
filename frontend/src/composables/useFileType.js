@@ -14,7 +14,10 @@ import {
 	IconVideo,
 	IconVideoFilled,
 } from '@tabler/icons-vue';
-import { extensionOf, previewTypeFor, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS } from '@omnicloud/shared';
+import {
+	extensionOf, previewTypeFor, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS,
+	THUMBNAIL_DOCUMENT_EXTENSIONS, THUMBNAIL_TEXT_EXTENSIONS, THUMBNAIL_VIDEO_EXTENSIONS,
+} from '@omnicloud/shared';
 
 const ICON_FACTORY = {
 	folder: { filled: IconFolderFilled, outline: IconFolder },
@@ -84,8 +87,32 @@ export function getPreviewType(file) {
 	return previewTypeFor({ mimeType, extension: extensionOf(file.display_name || file.file_name || '') });
 }
 
+// I3: nao usa getFileCategory/DOCUMENT_EXTENSIONS (mais amplo, inclui csv por
+// exemplo) porque isso oferecia miniatura para tipos que o backend recusa com
+// 415. Imagem continua liberada porque o consumidor com imagem real usa
+// api.previewUrl, nunca api.thumbnailUrl; os demais tem que bater exatamente
+// com o que getThumbnailKind sabe gerar.
 export function canShowGridThumbnail(file) {
-	return Boolean(file && !file.is_folder && ['image', 'video', 'document'].includes(getFileCategory(file)));
+	if (!file || file.is_folder) return false;
+	const mimeType = (file.mime_type || file.mimeType || '').toLowerCase();
+	const extension = extensionOf(file.display_name || file.file_name || '');
+
+	if (mimeType.startsWith('image/') || IMAGE_EXTENSIONS.has(extension)) return true;
+	if (mimeType.startsWith('video/') || THUMBNAIL_VIDEO_EXTENSIONS.has(extension)) return true;
+	if (mimeType === 'application/pdf' || extension === 'pdf') return true;
+	if (
+		THUMBNAIL_DOCUMENT_EXTENSIONS.has(extension)
+		|| mimeType.includes('document')
+		|| mimeType.includes('word')
+		|| mimeType.includes('sheet')
+		|| mimeType.includes('excel')
+		|| mimeType.includes('presentation')
+		|| mimeType.includes('powerpoint')
+		|| mimeType.includes('opendocument')
+	) return true;
+	if (mimeType.startsWith('text/') || mimeType === 'application/json' || THUMBNAIL_TEXT_EXTENSIONS.has(extension)) return true;
+
+	return false;
 }
 
 export function getFileIcon(file, filled = false) {
