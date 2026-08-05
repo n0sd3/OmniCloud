@@ -34,6 +34,10 @@ export class MegaBasterdError extends Error {
 	}
 }
 
+function sanitizeRange(range) {
+	return range && (range.start != null || range.end != null) ? range : null;
+}
+
 export function createMegaBasterdClient({
 	baseUrl,
 	secret,
@@ -127,7 +131,7 @@ export function createMegaBasterdClient({
 		}),
 		streamPublic: (link, { range = null, signal } = {}) => request('/stream', {
 			method: 'POST',
-			body: { source: 'public', link, range },
+			body: { source: 'public', link, range: sanitizeRange(range) },
 			signal,
 			stream: true,
 		}),
@@ -139,7 +143,7 @@ export function createMegaBasterdClient({
 				file_key: transfer.fileKey,
 				file_name: transfer.fileName,
 				size: transfer.size,
-				range,
+				range: sanitizeRange(range),
 			},
 			signal,
 			stream: true,

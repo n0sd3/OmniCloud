@@ -176,6 +176,32 @@ test('MegaBasterd client sends canonical public links to the stream endpoint', a
 	assert.equal(await read(await client.streamPublic('https://mega.nz/file/id#key')), 'public');
 });
 
+test('MegaBasterd client normalizes an empty range object to null', async (t) => {
+	const fixture = await startServer(async (request, response) => {
+		assert.deepEqual(await readBody(request), {
+			source: 'resolved',
+			download_url: 'https://signed.example/file',
+			file_key: 'private-key',
+			file_name: 'fixture.bin',
+			size: 36,
+			range: null,
+		});
+		response.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+		response.end('full-file');
+	});
+	t.after(() => fixture.server.close());
+	const client = createMegaBasterdClient({ baseUrl: fixture.baseUrl, secret: 'test-secret', timeoutMs: 1000 });
+
+	const stream = await client.streamResolved({
+		downloadUrl: 'https://signed.example/file',
+		fileKey: 'private-key',
+		fileName: 'fixture.bin',
+		size: 36,
+	}, { range: {} });
+
+	assert.equal(await read(stream), 'full-file');
+});
+
 test('MegaBasterd client maps quota to a terminal safe error', async (t) => {
 	const fixture = await startServer((_request, response) => {
 		response.writeHead(429, { 'Content-Type': 'application/json' });
