@@ -44,6 +44,7 @@ export const env = {
 	smbProvisionSecret: process.env.SMB_PROVISION_SECRET || '',
 	smbHost: process.env.SMB_HOST || 'omnicloud',
 	thumbnailCacheDir: process.env.THUMBNAIL_CACHE_DIR || path.resolve(process.cwd(), 'data/thumbnails'),
+	thumbnailMaxBytes: Number(process.env.THUMBNAIL_MAX_BYTES || 1024 * 1024 * 1024),
 	previewCacheDir: process.env.PREVIEW_CACHE_DIR || path.resolve(process.cwd(), 'data/previews'),
 	fileCachePath: process.env.FILE_CACHE_PATH || path.resolve(process.cwd(), '.cache/files'),
 	fileCacheWarmTtlMs: Number(process.env.FILE_CACHE_WARM_TTL_MS || 60 * 60 * 1000),

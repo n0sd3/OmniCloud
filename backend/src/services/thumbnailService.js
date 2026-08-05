@@ -92,7 +92,7 @@ export async function generateThumbnail({
 	openStream,
 	cacheDir = env.thumbnailCacheDir,
 	execute = execFileAsync,
-	maxBytes = Infinity,
+	maxBytes = env.thumbnailMaxBytes,
 	timeoutMs = DEFAULT_TIMEOUT_MS,
 }) {
 	const kind = getThumbnailKind(file);
