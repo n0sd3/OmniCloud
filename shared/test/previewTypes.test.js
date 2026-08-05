@@ -40,3 +40,9 @@ test('archives are their own preview type', () => {
 	assert.equal(previewTypeFor({ extension: 'rar' }), 'archive');
 	assert.equal(previewTypeFor({ extension: 'tgz' }), 'archive');
 });
+
+test('source files preview as text', () => {
+	assert.equal(previewTypeFor({ extension: 'py' }), 'text');
+	assert.equal(previewTypeFor({ extension: 'vue' }), 'text');
+	assert.equal(previewTypeFor({ extension: 'md' }), 'text');
+});

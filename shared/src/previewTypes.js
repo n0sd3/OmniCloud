@@ -7,7 +7,12 @@ export const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'jpeg', '
 export const VIDEO_EXTENSIONS = new Set(['avi', 'm4v', 'mkv', 'mov', 'mp4', 'webm']);
 export const AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav']);
 export const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'odp', 'ods', 'odt', 'ppt', 'pptx', 'xls', 'xlsx']);
-export const TEXT_EXTENSIONS = new Set(['csv', 'json', 'log', 'md', 'txt', 'xml', 'yaml', 'yml']);
+export const TEXT_EXTENSIONS = new Set([
+	'bash', 'c', 'cc', 'cfg', 'conf', 'cpp', 'cs', 'css', 'csv', 'env', 'go', 'h', 'hpp',
+	'html', 'ini', 'java', 'js', 'json', 'jsx', 'kt', 'log', 'lua', 'markdown', 'md',
+	'php', 'pl', 'py', 'rb', 'rs', 'scss', 'sh', 'sql', 'svelte', 'swift', 'toml', 'ts',
+	'tsx', 'txt', 'vue', 'xml', 'yaml', 'yml', 'zsh',
+]);
 export const ARCHIVE_EXTENSIONS = new Set(['7z', 'bz2', 'gz', 'jar', 'rar', 'tar', 'tgz', 'xz', 'zip']);
 
 export function extensionOf(name) {

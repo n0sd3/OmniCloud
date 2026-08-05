@@ -1,6 +1,8 @@
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { api } from '../../../services/api';
+import { isCsv, isMarkdown, languageOf, parseCsv } from '../../../composables/useTextPreview.js';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
 
@@ -9,19 +11,50 @@ const props = defineProps({
 	active: { type: Boolean, default: false },
 });
 const emit = defineEmits(['loaded', 'failed']);
+const { t } = useI18n();
 
 const body = ref('');
+const html = ref('');
+const showSource = ref(false);
 let currentToken = null;
+
+const name = computed(() => props.file.display_name || props.file.file_name || '');
+const language = computed(() => languageOf(name.value));
+const asMarkdown = computed(() => isMarkdown(name.value) && !showSource.value);
+const asCsv = computed(() => isCsv(name.value) && !showSource.value);
+const table = computed(() => (asCsv.value ? parseCsv(body.value) : { header: [], rows: [] }));
+
+// Highlight e markdown chegam por import() dinamico: quem so ve fotos nao
+// baixa nenhum dos dois.
+async function decorate(token) {
+	if (isMarkdown(name.value)) {
+		const { marked } = await import('marked');
+		if (currentToken !== token) return;
+		// Escapar antes de passar pro marked: sem isso, HTML/script embutido no
+		// markdown do usuario executaria na mesma origem via v-html.
+		const escaped = body.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+		html.value = marked.parse(escaped, { breaks: true });
+		return;
+	}
+	if (language.value) {
+		const hljs = (await import('highlight.js/lib/common')).default;
+		if (currentToken !== token) return;
+		html.value = hljs.highlight(body.value, { language: language.value, ignoreIllegals: true }).value;
+	}
+}
 
 async function load() {
 	const token = props.file.id;
 	currentToken = token;
+	body.value = '';
+	html.value = '';
+	showSource.value = false;
 	try {
 		const text = await api.previewText(props.file.id);
-		// Corrida: o usuario pode ter passado para outro arquivo antes da resposta.
 		if (currentToken !== token) return;
 		body.value = text.length > MAX_TEXT_BYTES ? text.slice(0, MAX_TEXT_BYTES) : text;
 		emit('loaded');
+		await decorate(token);
 	} catch {
 		if (currentToken !== token) return;
 		emit('failed');
@@ -33,5 +66,35 @@ onBeforeUnmount(() => { currentToken = null; });
 </script>
 
 <template>
-	<pre class="h-full w-full overflow-auto whitespace-pre-wrap break-words px-5 py-4 font-mono text-xs leading-relaxed text-slate-100">{{ body }}</pre>
+	<div class="h-full w-full overflow-auto px-4 py-4 text-slate-100">
+		<button
+			v-if="isMarkdown(name) || isCsv(name)"
+			type="button"
+			class="mb-3 rounded-full bg-white/10 px-4 py-1.5 text-xs font-medium hover:bg-white/20"
+			@click.stop="showSource = !showSource"
+		>
+			{{ showSource ? t('preview.openRendered') : t('preview.openSource') }}
+		</button>
+
+		<table v-if="asCsv" class="w-full border-collapse text-left text-xs">
+			<thead>
+				<tr>
+					<th v-for="(cell, index) in table.header" :key="index" class="border border-white/15 bg-white/10 px-2 py-1 font-semibold">{{ cell }}</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr v-for="(row, rowIndex) in table.rows" :key="rowIndex">
+					<td v-for="(cell, cellIndex) in row" :key="cellIndex" class="border border-white/10 px-2 py-1">{{ cell }}</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<!-- eslint-disable-next-line vue/no-v-html -->
+		<div v-else-if="asMarkdown && html" class="prose prose-invert max-w-3xl" v-html="html"></div>
+
+		<!-- eslint-disable-next-line vue/no-v-html -->
+		<pre v-else-if="html && !showSource" class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed"><code v-html="html"></code></pre>
+
+		<pre v-else class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">{{ body }}</pre>
+	</div>
 </template>
