@@ -28,6 +28,17 @@ test('does not store a position near the end of the media', () => {
 	assert.equal(resume.read('file-1'), 0, 'less than 30s left counts as finished');
 });
 
+test('clear removes a stored position outright', () => {
+	const storage = fakeStorage();
+	const resume = createMediaResume(storage, { now: () => 1_000 });
+
+	resume.write('file-1', 42, 600);
+	resume.clear('file-1');
+
+	assert.equal(resume.read('file-1'), 0);
+	assert.equal(storage.getItem('omnicloud.resume.file-1'), null);
+});
+
 test('reads zero for an unknown file', () => {
 	const resume = createMediaResume(fakeStorage(), { now: () => 1_000 });
 	assert.equal(resume.read('missing'), 0);

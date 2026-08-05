@@ -32,6 +32,10 @@ export function createMediaResume(storage, { now = () => Date.now() } = {}) {
 		}
 	}
 
+	function clear(fileId) {
+		storage.removeItem(key(fileId));
+	}
+
 	function prune() {
 		const cutoff = now() - MAX_AGE_MS;
 		const keys = Object.keys(storage.dump ? storage.dump() : storage);
@@ -46,7 +50,7 @@ export function createMediaResume(storage, { now = () => Date.now() } = {}) {
 		}
 	}
 
-	return { read, write, prune };
+	return { read, write, clear, prune };
 }
 
 export function useMediaResume() {

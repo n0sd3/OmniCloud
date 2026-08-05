@@ -22,10 +22,16 @@ const supportsPip = typeof document !== 'undefined' && document.pictureInPicture
 
 const resume = useMediaResume();
 let saveTimer = null;
-// pause() dispara o evento 'pause' de forma assincrona; sem esta flag o
-// desativar do slide vira um hold() sem release() correspondente (o slide
-// nao vai tocar de novo para soltar).
-let suppressPauseHold = false;
+// Estado local do hold, nao o evento 'pause' do browser: pause() em midia ja
+// pausada nao dispara evento nenhum, entao contar so pelo evento perde o
+// release quando o slide sai de cena (ou desmonta) enquanto pausado.
+let held = false;
+
+function releaseIfHeld() {
+	if (!held) return;
+	held = false;
+	emit('release');
+}
 
 function onLoaded() {
 	const at = resume.read(props.file.id);
@@ -62,31 +68,33 @@ async function togglePip() {
 // esta olhando para eles.
 function onPause() {
 	stopSaving();
-	if (suppressPauseHold) {
-		suppressPauseHold = false;
+	// pause() dispara o evento de forma assincrona (tarefa enfileirada), entao
+	// um swipe durante a reproducao pode chegar aqui com active ja false: nesse
+	// caso o pause veio da desativacao, nao do usuario, e nao deve travar o chrome.
+	if (!props.active) {
+		releaseIfHeld();
 		return;
 	}
+	held = true;
 	emit('hold');
 }
 
 function onPlay() {
 	startSaving();
-	emit('release');
+	releaseIfHeld();
 }
 
 function onEnded() {
-	resume.write(props.file.id, 0, 0);
-	// O elemento dispara 'pause' antes de 'ended' ao chegar no fim (fez o hold
-	// la em onPause); sem este release o chrome fica preso para sempre.
-	emit('release');
+	resume.clear(props.file.id);
+	releaseIfHeld();
 	emit('ended');
 }
 
 watch(() => props.active, (active) => {
 	if (!active) {
-		suppressPauseHold = true;
 		mediaRef.value?.pause();
 		stopSaving();
+		releaseIfHeld();
 	}
 });
 
@@ -95,6 +103,7 @@ onBeforeUnmount(() => {
 	const media = mediaRef.value;
 	if (media) resume.write(props.file.id, media.currentTime, media.duration);
 	stopSaving();
+	releaseIfHeld();
 });
 </script>
 
