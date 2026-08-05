@@ -75,6 +75,7 @@ function onPause() {
 		releaseIfHeld();
 		return;
 	}
+	if (held) return;
 	held = true;
 	emit('hold');
 }
