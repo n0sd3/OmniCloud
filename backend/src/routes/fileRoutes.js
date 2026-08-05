@@ -11,6 +11,7 @@ import { fileCacheService } from '../services/fileCacheService.js';
 import { parseRangeHeader } from '../services/webdav.js';
 import { effectivePreviewSource, getPreviewCacheKey, getPreviewKind, renderOfficePdf } from '../services/previewService.js';
 import { getPdfPageCount, renderPdfPage } from '../services/pdfPageService.js';
+import { listArchiveEntries } from '../services/archiveService.js';
 import { googleDocsExport, exportedFileName } from '../utils/mime.js';
 
 const router = Router();
@@ -471,6 +472,26 @@ router.get('/files/:id/preview/page/:page', async (req, res, next) => {
 		createReadStream(pagePath).on('error', next).pipe(res);
 	} catch (error) {
 		if (error.statusCode === 404 || error.statusCode === 415 || error.statusCode === 422) {
+			return res.status(error.statusCode).json({ error: error.message });
+		}
+		next(error);
+	}
+});
+
+router.get('/files/:id/preview/entries', async (req, res, next) => {
+	try {
+		const context = await getFileContext(req.user.id, req.params.id);
+		if (!ensureFileContext(context, res)) return;
+
+		const listing = await listArchiveEntries({
+			userId: req.user.id,
+			file: context.file,
+			openStream: openPreviewStream(req, context),
+		});
+		res.setHeader('Cache-Control', 'private, max-age=3600');
+		return res.json(listing);
+	} catch (error) {
+		if (error.statusCode === 415 || error.statusCode === 422) {
 			return res.status(error.statusCode).json({ error: error.message });
 		}
 		next(error);

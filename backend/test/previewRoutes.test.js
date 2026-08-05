@@ -28,6 +28,7 @@ let baseUrl;
 let textFile;
 let archiveFile;
 let officeFile;
+let unsupportedFile;
 
 test.before(async () => {
 	db.prepare(`
@@ -69,6 +70,18 @@ test.before(async () => {
 		remote_file_id: 'docx-remote',
 		remote_modified_time: '2026-08-02T12:00:00.000Z',
 	});
+	// application/zip agora tem renderer proprio (archive): usar um tipo
+	// genuinamente sem renderer para testar a rejeicao.
+	unsupportedFile = createFileMetadata({
+		user_id: LOCAL_USER_ID,
+		virtual_path: '/',
+		file_name: 'setup.exe',
+		is_folder: false,
+		size: 4,
+		mime_type: 'application/x-msdownload',
+		cloud_account_id: 'account-1',
+		remote_file_id: 'exe-remote',
+	});
 
 	// PDF ja convertido: a rota deve servir o cache sem chamar o LibreOffice.
 	await fs.mkdir(process.env.PREVIEW_CACHE_DIR, { recursive: true });
@@ -89,7 +102,7 @@ test.after(async () => {
 });
 
 test('preview rejects file types without a renderer', async () => {
-	const response = await fetch(`${baseUrl}/api/files/${archiveFile.id}/preview`);
+	const response = await fetch(`${baseUrl}/api/files/${unsupportedFile.id}/preview`);
 	assert.equal(response.status, 415);
 });
 
@@ -129,5 +142,10 @@ test('rejects a page number that is not a positive integer', async () => {
 
 test('paged preview is refused for a text file', async () => {
 	const response = await fetch(`${baseUrl}/api/files/${textFile.id}/preview/pages`);
+	assert.equal(response.status, 415);
+});
+
+test('archive listing is refused for a text file', async () => {
+	const response = await fetch(`${baseUrl}/api/files/${textFile.id}/preview/entries`);
 	assert.equal(response.status, 415);
 });

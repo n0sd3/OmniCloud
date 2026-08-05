@@ -8,6 +8,7 @@ export const VIDEO_EXTENSIONS = new Set(['avi', 'm4v', 'mkv', 'mov', 'mp4', 'web
 export const AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav']);
 export const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'odp', 'ods', 'odt', 'ppt', 'pptx', 'xls', 'xlsx']);
 export const TEXT_EXTENSIONS = new Set(['csv', 'json', 'log', 'md', 'txt', 'xml', 'yaml', 'yml']);
+export const ARCHIVE_EXTENSIONS = new Set(['7z', 'bz2', 'gz', 'jar', 'rar', 'tar', 'tgz', 'xz', 'zip']);
 
 export function extensionOf(name) {
 	const parts = String(name || '').toLowerCase().split('.');
@@ -30,6 +31,13 @@ export function previewTypeFor({ mimeType = '', extension = '' } = {}) {
 		|| mime.includes('ms-excel')
 		|| mime.includes('ms-powerpoint')
 	) return 'office';
+	if (
+		ARCHIVE_EXTENSIONS.has(ext)
+		|| mime.includes('zip')
+		|| mime.includes('rar')
+		|| mime.includes('7z')
+		|| mime.includes('tar')
+	) return 'archive';
 	if (mime.startsWith('text/') || mime === 'application/json' || TEXT_EXTENSIONS.has(ext)) return 'text';
 
 	return null;

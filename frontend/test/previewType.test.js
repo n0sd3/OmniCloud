@@ -29,7 +29,6 @@ test('getPreviewType agrees with the backend', () => {
 });
 
 test('getPreviewType rejects what has no renderer', () => {
-	assert.equal(getPreviewType({ file_name: 'archive.zip', mime_type: 'application/zip' }), null);
 	assert.equal(getPreviewType({ file_name: 'setup.exe', mime_type: 'application/x-msdownload' }), null);
 	assert.equal(getPreviewType(null), null);
 });

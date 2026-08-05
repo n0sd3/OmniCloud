@@ -32,7 +32,7 @@ test('getPreviewKind classifies by effective mime type', () => {
 		[{ file_name: 'notes.txt', mime_type: 'text/plain' }, 'text'],
 		[{ file_name: 'data.json', mime_type: 'application/json' }, 'text'],
 		[{ file_name: 'table.csv', mime_type: 'application/octet-stream' }, 'text'],
-		[{ file_name: 'archive.zip', mime_type: 'application/zip' }, null],
+		[{ file_name: 'archive.zip', mime_type: 'application/zip' }, 'archive'],
 		[{ file_name: 'setup.exe', mime_type: 'application/x-msdownload' }, null],
 		[{ file_name: 'folder', is_folder: true }, null],
 	];

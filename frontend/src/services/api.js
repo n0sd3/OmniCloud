@@ -311,6 +311,9 @@ export const api = {
 	previewPages(fileId) {
 		return request(`/files/${fileId}/preview/pages`);
 	},
+	previewEntries(fileId) {
+		return request(`/files/${fileId}/preview/entries`);
+	},
 	previewPageUrl(fileId, page) {
 		return `${API_BASE_URL}/files/${fileId}/preview/page/${page}`;
 	},

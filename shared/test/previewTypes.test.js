@@ -34,3 +34,9 @@ test('tif/tiff are not classified as image yet, no backend conversion to render 
 	assert.equal(previewTypeFor({ extension: 'tif' }), null);
 	assert.equal(previewTypeFor({ mimeType: 'application/octet-stream', extension: 'tiff' }), null);
 });
+
+test('archives are their own preview type', () => {
+	assert.equal(previewTypeFor({ mimeType: 'application/zip' }), 'archive');
+	assert.equal(previewTypeFor({ extension: 'rar' }), 'archive');
+	assert.equal(previewTypeFor({ extension: 'tgz' }), 'archive');
+});

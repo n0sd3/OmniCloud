@@ -6,6 +6,7 @@ import MediaRender from './renderers/MediaRender.vue';
 import TextRender from './renderers/TextRender.vue';
 import FallbackRender from './renderers/FallbackRender.vue';
 import PagedRender from './renderers/PagedRender.vue';
+import ArchiveRender from './renderers/ArchiveRender.vue';
 
 const props = defineProps({
 	file: { type: Object, required: true },
@@ -24,6 +25,7 @@ const RENDERERS = {
 	text: TextRender,
 	pdf: PagedRender,
 	office: PagedRender,
+	archive: ArchiveRender,
 };
 
 const renderer = computed(() => RENDERERS[props.file.previewType] || FallbackRender);
