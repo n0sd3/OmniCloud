@@ -4,8 +4,11 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { LOCAL_USER_ID } from './config/database.js';
 import { fileCacheService } from './services/fileCacheService.js';
+import { sweepPreviewCache } from './services/previewCacheSweeper.js';
 import { registerUploadSocket, unregisterUploadSocket } from './services/websocketHub.js';
 import { runDeltaSync, scheduleSync } from './services/syncService.js';
+
+const PREVIEW_CACHE_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function isNonFatalBackgroundError(error) {
 	const message = error?.message || String(error || '');
@@ -61,6 +64,14 @@ wss.on('connection', (socket, request) => {
 fileCacheService.cleanupTemps().catch((error) => {
 	console.error('File cache temp cleanup failed:', error);
 });
+
+function runPreviewCacheSweep() {
+	sweepPreviewCache(env.previewCacheDir).catch((error) => {
+		console.error('Preview cache sweep failed:', error);
+	});
+}
+runPreviewCacheSweep();
+setInterval(runPreviewCacheSweep, PREVIEW_CACHE_SWEEP_INTERVAL_MS);
 
 scheduleSync();
 if (env.appMode === 'local') {
