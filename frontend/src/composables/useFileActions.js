@@ -28,7 +28,6 @@ export function useFileActions({
 	const { contextMenu, contextMenuRef, closeContextMenu, openContextMenu: openContextMenuBase } = useContextMenu();
 
 	const {
-		previewFile,
 		isPreviewOpen,
 		previewableFiles,
 		currentIndex,
@@ -223,7 +222,6 @@ export function useFileActions({
 		selectItem,
 		clearSelection,
 		getActionFiles,
-		previewFile,
 		isPreviewOpen,
 		previewableFiles,
 		currentIndex,
