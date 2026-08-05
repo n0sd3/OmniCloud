@@ -54,7 +54,12 @@ async function load() {
 		if (currentToken !== token) return;
 		body.value = text.length > MAX_TEXT_BYTES ? text.slice(0, MAX_TEXT_BYTES) : text;
 		emit('loaded');
-		await decorate(token);
+		// Highlight e markdown sao cosmeticos: se o chunk nao carregar, o arquivo
+		// continua legivel como texto puro em vez de virar tela de erro.
+		try {
+			await decorate(token);
+		} catch {
+		}
 	} catch {
 		if (currentToken !== token) return;
 		emit('failed');
