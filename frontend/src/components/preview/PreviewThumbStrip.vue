@@ -1,7 +1,7 @@
 <script setup>
-import { nextTick, ref, watch } from 'vue';
+import { nextTick, reactive, ref, watch } from 'vue';
 import { api } from '../../services/api';
-import { canShowGridThumbnail, getFileIcon } from '../../composables/useFileType.js';
+import { canShowGridThumbnail, getFileCategory, getFileIcon } from '../../composables/useFileType.js';
 
 const props = defineProps({
 	files: { type: Array, default: () => [] },
@@ -10,6 +10,12 @@ const props = defineProps({
 const emit = defineEmits(['goto']);
 
 const stripRef = ref(null);
+// mesmo padrao do FileListGridCard: imagem usa preview real, resto usa thumbnail
+const failedIds = reactive(new Set());
+
+function thumbnailUrl(file) {
+	return getFileCategory(file) === 'image' ? api.previewUrl(file.id) : api.thumbnailUrl(file);
+}
 
 watch(() => props.currentIndex, async () => {
 	await nextTick();
@@ -31,7 +37,7 @@ watch(() => props.currentIndex, async () => {
 			:class="index === props.currentIndex ? 'ring-[#1a73e8]' : 'ring-transparent hover:ring-white/40'"
 			@click.stop="emit('goto', index)"
 		>
-			<img v-if="canShowGridThumbnail(file)" :src="api.thumbnailUrl(file)" :alt="file.display_name || file.file_name" class="size-full object-cover" loading="lazy" />
+			<img v-if="canShowGridThumbnail(file) && !failedIds.has(file.id)" :src="thumbnailUrl(file)" :alt="file.display_name || file.file_name" class="size-full object-cover" loading="lazy" @error="failedIds.add(file.id)" />
 			<component :is="getFileIcon(file)" v-else :size="22" :stroke="1.8" class="text-slate-300" />
 		</button>
 	</div>

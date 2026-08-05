@@ -25,12 +25,22 @@ function isImage(file) {
 	return mimeType.startsWith('image/');
 }
 
-test('canShowGridThumbnail never claims a thumbnail the backend refuses', () => {
-	for (const file of FIXTURES) {
+// canShowGridThumbnail promete "este arquivo tem uma fonte de imagem que
+// funciona". Para imagens essa fonte e api.previewUrl (PreviewThumbStrip e
+// FileListGridCard roteiam assim), nunca a rota /thumbnail — entao nao faz
+// sentido comparar imagem contra getThumbnailKind, que nunca tem branch de
+// imagem. Para o resto, a fonte e mesmo api.thumbnailUrl e por isso essa
+// parte tem que bater exatamente com getThumbnailKind.
+test('images can show a thumbnail without depending on getThumbnailKind', () => {
+	for (const file of FIXTURES.filter(isImage)) {
+		assert.equal(canShowGridThumbnail(file), true, file.file_name);
+	}
+});
+
+test('non-image files: canShowGridThumbnail agrees exactly with getThumbnailKind', () => {
+	for (const file of FIXTURES.filter((file) => !isImage(file))) {
 		const canShow = canShowGridThumbnail(file);
-		// Imagens nao passam por getThumbnailKind: o consumidor real usa
-		// api.previewUrl para elas, nunca a rota /thumbnail.
-		const backendSupports = isImage(file) || Boolean(getThumbnailKind(file));
+		const backendSupports = Boolean(getThumbnailKind(file));
 		assert.equal(canShow, backendSupports, file.file_name);
 	}
 });
