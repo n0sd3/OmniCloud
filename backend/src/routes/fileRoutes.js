@@ -370,16 +370,24 @@ router.get('/files/:id/preview', async (req, res, next) => {
 			return res.status(415).json({ error: 'Preview is not supported for this file type' });
 		}
 
+		// M6: HEIC/TIFF sao convertidos e servidos como image/jpeg; o nome no
+		// Content-Disposition tem que acompanhar, senao "salvar como" grava bytes
+		// jpeg dentro de um arquivo .heic.
+		const convertsToJpeg = needsImageConversion(context.file);
+		const downloadName = convertsToJpeg
+			? `${context.file.file_name.replace(/\.[^./]+$/, '')}.jpg`
+			: context.file.file_name;
+
 		const etag = `"${getPreviewCacheKey(req.user.id, context.file)}"`;
 		res.setHeader('ETag', etag);
 		res.setHeader('Cache-Control', 'private, max-age=3600');
 		res.setHeader('Accept-Ranges', 'bytes');
-		res.setHeader('Content-Disposition', `inline; filename="${context.file.file_name}"`);
+		res.setHeader('Content-Disposition', `inline; filename="${downloadName}"`);
 		if (req.headers['if-none-match'] === etag) {
 			return res.status(304).end();
 		}
 
-		if (needsImageConversion(context.file)) {
+		if (convertsToJpeg) {
 			const imagePath = await renderImageJpeg({
 				userId: req.user.id,
 				file: context.file,
@@ -451,6 +459,10 @@ router.get('/files/:id/preview/pages', async (req, res, next) => {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) return;
 
+		if (context.file.is_folder) {
+			return res.status(400).json({ error: 'Folder preview is not supported' });
+		}
+
 		const pageCount = await getPdfPageCount({
 			userId: req.user.id,
 			file: context.file,
@@ -459,7 +471,8 @@ router.get('/files/:id/preview/pages', async (req, res, next) => {
 		res.setHeader('Cache-Control', 'private, max-age=3600');
 		return res.json({ pageCount });
 	} catch (error) {
-		if (error.statusCode === 404 || error.statusCode === 415 || error.statusCode === 422) {
+		// getPdfPageCount nunca lanca 404: so o range de pagina especifico lanca.
+		if (error.statusCode === 415 || error.statusCode === 422) {
 			return res.status(error.statusCode).json({ error: error.message });
 		}
 		next(error);
@@ -470,6 +483,10 @@ router.get('/files/:id/preview/page/:page', async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) return;
+
+		if (context.file.is_folder) {
+			return res.status(400).json({ error: 'Folder preview is not supported' });
+		}
 
 		const pagePath = await renderPdfPage({
 			userId: req.user.id,
@@ -492,6 +509,10 @@ router.get('/files/:id/preview/entries', async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) return;
+
+		if (context.file.is_folder) {
+			return res.status(400).json({ error: 'Folder preview is not supported' });
+		}
 
 		const listing = await listArchiveEntries({
 			userId: req.user.id,

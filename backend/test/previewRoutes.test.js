@@ -29,6 +29,8 @@ let textFile;
 let archiveFile;
 let officeFile;
 let unsupportedFile;
+let folderFile;
+let heicFile;
 
 test.before(async () => {
 	db.prepare(`
@@ -83,11 +85,38 @@ test.before(async () => {
 		remote_file_id: 'exe-remote',
 	});
 
+	folderFile = createFileMetadata({
+		user_id: LOCAL_USER_ID,
+		virtual_path: '/',
+		file_name: 'backup.zip',
+		is_folder: true,
+		size: 0,
+		mime_type: null,
+		cloud_account_id: 'account-1',
+		remote_file_id: 'folder-remote',
+	});
+	heicFile = createFileMetadata({
+		user_id: LOCAL_USER_ID,
+		virtual_path: '/',
+		file_name: 'photo.heic',
+		is_folder: false,
+		size: 5,
+		mime_type: 'application/octet-stream',
+		cloud_account_id: 'account-1',
+		remote_file_id: 'heic-remote',
+		remote_modified_time: '2026-08-02T12:00:00.000Z',
+	});
+
 	// PDF ja convertido: a rota deve servir o cache sem chamar o LibreOffice.
 	await fs.mkdir(process.env.PREVIEW_CACHE_DIR, { recursive: true });
 	await fs.writeFile(
 		path.join(process.env.PREVIEW_CACHE_DIR, `${getPreviewCacheKey(LOCAL_USER_ID, officeFile)}.pdf`),
 		'converted-pdf',
+	);
+	// HEIC ja convertido: idem, sem chamar o ffmpeg.
+	await fs.writeFile(
+		path.join(process.env.PREVIEW_CACHE_DIR, `${getPreviewCacheKey(LOCAL_USER_ID, heicFile)}.jpg`),
+		'converted-jpeg',
 	);
 
 	server = app.listen(0);
@@ -156,4 +185,23 @@ test('archive listing accepts a supported extension but fails on unreadable cont
 	// zip bytes, so unzip -l has nothing valid to parse: that surfaces as 422.
 	const response = await fetch(`${baseUrl}/api/files/${archiveFile.id}/preview/entries`);
 	assert.equal(response.status, 422);
+});
+
+test('M4: a folder answers 400, not the tool-specific 415/422, on pages/page/entries', async () => {
+	const pages = await fetch(`${baseUrl}/api/files/${folderFile.id}/preview/pages`);
+	assert.equal(pages.status, 400);
+
+	const page = await fetch(`${baseUrl}/api/files/${folderFile.id}/preview/page/1`);
+	assert.equal(page.status, 400);
+
+	const entries = await fetch(`${baseUrl}/api/files/${folderFile.id}/preview/entries`);
+	assert.equal(entries.status, 400);
+});
+
+test('M6: a converted HEIC preview keeps a .jpg filename, not the original .heic', async () => {
+	const response = await fetch(`${baseUrl}/api/files/${heicFile.id}/preview`);
+	assert.equal(response.status, 200);
+	assert.equal(response.headers.get('content-type'), 'image/jpeg');
+	assert.match(response.headers.get('content-disposition'), /filename="photo\.jpg"/);
+	assert.equal(await response.text(), 'converted-jpeg');
 });
