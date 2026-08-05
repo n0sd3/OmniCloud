@@ -39,10 +39,17 @@ async function ensureSourcePdf({ userId, file, openStream, cacheDir, execute, ma
 	} catch {
 	}
 
-	const tempPath = `${sourcePath}.part`;
-	await writeStreamToFile(await openStream(), tempPath, maxBytes);
-	await fs.rename(tempPath, sourcePath);
-	return sourcePath;
+	// Escreve num diretorio temporario proprio para nao deixar um .part orfao no
+	// cache persistente se o stream falhar no meio (mesmo padrao de renderOfficePdf).
+	const tempDir = await fs.mkdtemp(path.join(cacheDir, '.tmp-src-'));
+	try {
+		const tempPath = path.join(tempDir, 'source.pdf');
+		await writeStreamToFile(await openStream(), tempPath, maxBytes);
+		await fs.rename(tempPath, sourcePath);
+		return sourcePath;
+	} finally {
+		await fs.rm(tempDir, { recursive: true, force: true });
+	}
 }
 
 export async function getPdfPageCount({

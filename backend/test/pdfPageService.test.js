@@ -57,3 +57,46 @@ test('renderPdfPage caches the rendered page and skips the converter on the seco
 	assert.equal(second, first);
 	assert.equal(conversions, 1, 'second call is served from cache');
 });
+
+test('renderPdfPage leaves no partial file in the cache dir when the source stream fails', async () => {
+	const cacheDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omnicloud-pdf-page-'));
+
+	await assert.rejects(
+		() => renderPdfPage({
+			userId: 'u1',
+			file: PDF_FILE,
+			page: 1,
+			openStream: async () => (async function* () {
+				yield Buffer.from('%PDF-1.4');
+				throw new Error('stream broke midway');
+			})(),
+			cacheDir,
+			execute: async () => { throw new Error('should not be called'); },
+		}),
+	);
+
+	const leftovers = await fs.readdir(cacheDir);
+	assert.deepEqual(leftovers, [], 'no .part file or temp dir should remain');
+});
+
+test('renderPdfPage rejects with 404 when pdftoppm produces no output for a page past the end', async () => {
+	const cacheDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omnicloud-pdf-page-'));
+
+	const execute = async (program) => {
+		if (program === 'pdfinfo') return { stdout: 'Pages:          3\n' };
+		// pdftoppm resolve sem erro mas nao escreve arquivo quando a pagina nao existe.
+		return { stdout: '' };
+	};
+
+	await assert.rejects(
+		() => renderPdfPage({
+			userId: 'u1',
+			file: PDF_FILE,
+			page: 99,
+			openStream: async () => (async function* () { yield Buffer.from('%PDF-1.4'); })(),
+			cacheDir,
+			execute,
+		}),
+		(error) => error.statusCode === 404,
+	);
+});
