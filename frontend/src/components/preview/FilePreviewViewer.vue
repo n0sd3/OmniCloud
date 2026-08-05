@@ -107,6 +107,15 @@ onBeforeUnmount(() => {
 	document.body.style.overflow = '';
 });
 
+function onSlideEnded(index) {
+	if (index !== props.currentIndex || !props.hasNext) return;
+	const next = props.files[index + 1];
+	const type = next && props.previewTypeOf(next);
+	// Auto-proximo so entre midias: pular de um mp3 para um docx no meio da fila
+	// e mais irritante do que util.
+	if (type === 'audio' || type === 'video') emit('next');
+}
+
 function displayName(file) {
 	return file?.display_name || file?.file_name || file?.name || '';
 }
@@ -146,6 +155,9 @@ function displayName(file) {
 				:near="props.isNear(index)"
 				class="h-full w-full shrink-0"
 				@download="emit('download', $event)"
+				@ended="onSlideEnded(index)"
+				@hold="chrome.hold()"
+				@release="chrome.release()"
 			/>
 		</div>
 

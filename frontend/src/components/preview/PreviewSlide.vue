@@ -13,7 +13,7 @@ const props = defineProps({
 	active: { type: Boolean, default: false },
 	near: { type: Boolean, default: false },
 });
-const emit = defineEmits(['download']);
+const emit = defineEmits(['download', 'ended', 'hold', 'release']);
 const { t } = useI18n();
 
 // Tipo novo custa uma linha aqui e um arquivo em renderers/, nunca mais um
@@ -43,6 +43,9 @@ watch(() => props.file.id, () => { state.value = 'loading'; });
 				:active="props.active"
 				@loaded="state = 'ready'"
 				@failed="state = 'error'"
+				@ended="emit('ended')"
+				@hold="emit('hold')"
+				@release="emit('release')"
 			/>
 
 			<div v-if="state === 'loading'" class="pointer-events-none absolute inset-0 grid place-items-center text-sm text-slate-300">
