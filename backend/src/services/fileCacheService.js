@@ -1,5 +1,6 @@
 import { env } from '../config/env.js';
 import { createLocalFileStore } from './localFileStore.js';
+import { googleDocsExport } from '../utils/mime.js';
 
 function versionOf(file) {
 	return file.remote_modified_time || file.modifiedTime || null;
@@ -50,9 +51,10 @@ export function createFileCacheService({
 	}
 
 	function warmFile({ userId, file, adapter }) {
-		// ponytail: arquivos sem conteudo binario (Google Docs nativos) reportam size 0 e nao sao
-		// baixaveis via alt=media; o store tambem rejeitaria o byte count. Nao vale cachear.
-		if (!Number(file.size)) return Promise.resolve();
+		// ponytail: Google Docs nativos (Docs/Sheets/Slides/...) sao baixados via export e o
+		// `size` sincronizado e bytes de quota do Drive, nao o tamanho do export gerado -
+		// nunca bate, entao o warm falharia sempre. Nao vale cachear.
+		if (!Number(file.size) || googleDocsExport(file)) return Promise.resolve();
 
 		const key = fileKey(userId, file);
 		const inflight = inflightDownloads.get(key);
