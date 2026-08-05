@@ -121,3 +121,13 @@ test('preview serves converted office files as pdf with a partial range', async 
 	assert.equal(partial.headers.get('content-length'), '9');
 	assert.equal(await partial.text(), 'converted');
 });
+
+test('rejects a page number that is not a positive integer', async () => {
+	const response = await fetch(`${baseUrl}/api/files/${officeFile.id}/preview/page/0`);
+	assert.equal(response.status, 404);
+});
+
+test('paged preview is refused for a text file', async () => {
+	const response = await fetch(`${baseUrl}/api/files/${textFile.id}/preview/pages`);
+	assert.equal(response.status, 415);
+});
