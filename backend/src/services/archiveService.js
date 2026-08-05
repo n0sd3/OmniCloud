@@ -96,7 +96,17 @@ export async function listArchiveEntries({
 			entries: parsed.slice(0, maxEntries),
 			truncated: parsed.length > maxEntries,
 		};
-		await fs.writeFile(cachePath, JSON.stringify(result));
+
+		// Cache e so otimizacao: falha ao gravar (ENOSPC, EACCES) nao pode
+		// derrubar uma listagem que ja deu certo. Escrita atomica via tmp+rename,
+		// igual pdfPageService, pra nunca deixar um .entries.json parcial no ar.
+		try {
+			const tempCachePath = path.join(tempDir, 'entries.json');
+			await fs.writeFile(tempCachePath, JSON.stringify(result));
+			await fs.rename(tempCachePath, cachePath);
+		} catch {
+		}
+
 		return result;
 	} catch (error) {
 		if (error.statusCode) throw error;

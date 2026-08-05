@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { listArchiveEntries, parse7zList, parseUnzipList } from '../src/services/archiveService.js';
+import { getPreviewCacheKey } from '../src/services/previewService.js';
 
 async function createCacheDir(t) {
 	const cacheDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omnicloud-archive-'));
@@ -148,4 +149,31 @@ test('listArchiveEntries caches the listing and serves the second call without i
 	});
 	assert.equal(calls, 1, 'the tool was not invoked again');
 	assert.deepEqual(second, first);
+});
+
+test('listArchiveEntries still returns entries when writing the cache fails', async (t) => {
+	const cacheDir = await createCacheDir(t);
+	const stdout = `Archive:  sample.zip
+  Length      Date    Time    Name
+---------  ---------- -----   ----
+      612  2026-07-01 10:12   readme.md
+---------                     -------
+      612                     1 file`;
+
+	const file = { file_name: 'sample.zip', size: 10 };
+	// Cria a cachePath esperada como diretorio: o rename do tmp+rename vai
+	// falhar (destino ja existe e nao e arquivo), simulando ENOSPC/EACCES.
+	const cachePath = path.join(cacheDir, `${getPreviewCacheKey('user-1', file)}.entries.json`);
+	await fs.mkdir(cachePath, { recursive: true });
+
+	const result = await listArchiveEntries({
+		userId: 'user-1',
+		file,
+		openStream: fakeOpenStream(),
+		cacheDir,
+		execute: async () => ({ stdout }),
+	});
+
+	assert.deepEqual(result.entries, [{ name: 'readme.md', size: 612 }]);
+	assert.equal(result.truncated, false);
 });
