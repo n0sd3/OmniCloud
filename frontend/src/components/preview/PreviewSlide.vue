@@ -5,6 +5,7 @@ import ImageRender from './renderers/ImageRender.vue';
 import MediaRender from './renderers/MediaRender.vue';
 import TextRender from './renderers/TextRender.vue';
 import FallbackRender from './renderers/FallbackRender.vue';
+import PagedRender from './renderers/PagedRender.vue';
 
 const props = defineProps({
 	file: { type: Object, required: true },
@@ -21,6 +22,8 @@ const RENDERERS = {
 	video: MediaRender,
 	audio: MediaRender,
 	text: TextRender,
+	pdf: PagedRender,
+	office: PagedRender,
 };
 
 const renderer = computed(() => RENDERERS[props.file.previewType] || FallbackRender);
