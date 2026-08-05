@@ -1,6 +1,6 @@
 import { extensionOf } from '@omnicloud/shared';
 
-const LANGUAGES = {
+export const LANGUAGES = {
 	bash: 'bash', c: 'c', cc: 'cpp', cpp: 'cpp', cs: 'csharp', css: 'css', go: 'go',
 	h: 'c', hpp: 'cpp', html: 'xml', ini: 'ini', java: 'java', js: 'javascript',
 	json: 'json', jsx: 'javascript', kt: 'kotlin', lua: 'lua', php: 'php', pl: 'perl',
@@ -19,6 +19,33 @@ export function isMarkdown(name) {
 
 export function isCsv(name) {
 	return extensionOf(name) === 'csv';
+}
+
+const SAFE_URL_PROTOCOL = /^(https?:|mailto:)/i;
+
+function isSafeUrl(value) {
+	// Caracteres de controle (tab, newline) escondem "java\nscript:" do regex:
+	// remove-los antes de checar o protocolo.
+	const cleaned = String(value || '').replace(/[\x00-\x20]+/g, '');
+	return cleaned.startsWith('#') || SAFE_URL_PROTOCOL.test(cleaned);
+}
+
+function sanitizeAttr(html, attr) {
+	return html.replace(new RegExp(`${attr}="([^"]*)"`, 'gi'), (match, value) => (
+		isSafeUrl(value) ? match : `${attr}="#"`
+	));
+}
+
+// C1: marked v5+ nao filtra mais o protocolo javascript: em href/src, e o
+// escape de & e < so deixa tags inertes, nao limpa atributos que o proprio
+// parser gera a partir de um link/imagem markdown. Extraida do componente
+// porque logica de seguranca dentro de .vue nao e testavel.
+export function renderMarkdown(body, parse) {
+	// So < precisa ser escapado para inutilizar tags: > sobrando nao abre nada
+	// e escapa-lo desativava blockquote (`> texto`) a toa.
+	const escaped = String(body || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+	const html = parse(escaped, { breaks: true });
+	return sanitizeAttr(sanitizeAttr(html, 'href'), 'src');
 }
 
 // ponytail: parser proprio de ~20 linhas em vez de dependencia de CSV. Se

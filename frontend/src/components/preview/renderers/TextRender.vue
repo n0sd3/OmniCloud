@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../../../services/api';
-import { isCsv, isMarkdown, languageOf, parseCsv } from '../../../composables/useTextPreview.js';
+import { isCsv, isMarkdown, languageOf, parseCsv, renderMarkdown } from '../../../composables/useTextPreview.js';
 
 const MAX_TEXT_BYTES = 1024 * 1024;
 
@@ -30,10 +30,7 @@ async function decorate(token) {
 	if (isMarkdown(name.value)) {
 		const { marked } = await import('marked');
 		if (currentToken !== token) return;
-		// Escapar antes de passar pro marked: sem isso, HTML/script embutido no
-		// markdown do usuario executaria na mesma origem via v-html.
-		const escaped = body.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-		html.value = marked.parse(escaped, { breaks: true });
+		html.value = renderMarkdown(body.value, marked.parse);
 		return;
 	}
 	if (language.value) {
