@@ -149,3 +149,11 @@ test('archive listing is refused for a text file', async () => {
 	const response = await fetch(`${baseUrl}/api/files/${textFile.id}/preview/entries`);
 	assert.equal(response.status, 415);
 });
+
+test('archive listing accepts a supported extension but fails on unreadable content', async () => {
+	// archiveFile is a supported type now (415 no longer applies), but the 'base'
+	// provider's getDownloadStream only ever returns simulated text, never real
+	// zip bytes, so unzip -l has nothing valid to parse: that surfaces as 422.
+	const response = await fetch(`${baseUrl}/api/files/${archiveFile.id}/preview/entries`);
+	assert.equal(response.status, 422);
+});

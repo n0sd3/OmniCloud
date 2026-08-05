@@ -5,7 +5,6 @@ import { promisify } from 'node:util';
 import { env } from '../config/env.js';
 import { extensionOf } from '@omnicloud/shared';
 import { writeStreamToFile } from './fileConvert.js';
-import { getPreviewCacheKey } from './previewService.js';
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
