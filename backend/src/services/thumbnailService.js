@@ -5,10 +5,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { env } from '../config/env.js';
 import { officeToPdf, writeStreamToFile } from './fileConvert.js';
+import { extensionOf, THUMBNAIL_DOCUMENT_EXTENSIONS, THUMBNAIL_TEXT_EXTENSIONS, THUMBNAIL_VIDEO_EXTENSIONS } from '@omnicloud/shared';
 
-const VIDEO_EXTENSIONS = new Set(['.avi', '.m4v', '.mkv', '.mov', '.mp4', '.webm']);
-const DOCUMENT_EXTENSIONS = new Set(['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp']);
-const TEXT_EXTENSIONS = new Set(['.json', '.txt']);
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const execFileAsync = promisify(execFile);
@@ -17,12 +15,12 @@ export function getThumbnailKind(file) {
 	if (!file || file.is_folder) return null;
 
 	const mimeType = String(file.mime_type || file.mimeType || '').toLowerCase();
-	const extension = path.extname(file.display_name || file.file_name || '').toLowerCase();
+	const extension = extensionOf(file.display_name || file.file_name || '');
 
-	if (mimeType.startsWith('video/') || VIDEO_EXTENSIONS.has(extension)) return 'video';
-	if (mimeType === 'application/pdf' || extension === '.pdf') return 'pdf';
+	if (mimeType.startsWith('video/') || THUMBNAIL_VIDEO_EXTENSIONS.has(extension)) return 'video';
+	if (mimeType === 'application/pdf' || extension === 'pdf') return 'pdf';
 	if (
-		DOCUMENT_EXTENSIONS.has(extension)
+		THUMBNAIL_DOCUMENT_EXTENSIONS.has(extension)
 		|| mimeType.includes('document')
 		|| mimeType.includes('word')
 		|| mimeType.includes('sheet')
@@ -31,7 +29,7 @@ export function getThumbnailKind(file) {
 		|| mimeType.includes('powerpoint')
 		|| mimeType.includes('opendocument')
 	) return 'document';
-	if (mimeType.startsWith('text/') || mimeType === 'application/json' || TEXT_EXTENSIONS.has(extension)) return 'text';
+	if (mimeType.startsWith('text/') || mimeType === 'application/json' || THUMBNAIL_TEXT_EXTENSIONS.has(extension)) return 'text';
 
 	return null;
 }

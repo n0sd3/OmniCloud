@@ -9,6 +9,13 @@ function versionOf(file) {
 	return file.remote_modified_time || file.modifiedTime || null;
 }
 
+function sizeMismatch(file, actual) {
+	// O tamanho vem do metadata sincronizado; divergencia quase sempre significa
+	// registro desatualizado. Sem identificar o arquivo o log fica indiagnosticavel.
+	return new Error(`Local file cache byte count mismatch for ${file.file_name || file.remote_file_id} `
+		+ `(account ${file.cloud_account_id}, remote ${file.remote_file_id}): expected ${Number(file.size || 0)}, got ${actual}`);
+}
+
 function metadataFor(file) {
 	return {
 		userId: file.user_id,
@@ -81,7 +88,7 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		const paths = pathsFor(file);
 		const metadata = metadataFor(file);
 		const dataStat = await fsp.stat(dataTemp);
-		if (dataStat.size !== metadata.size) throw new Error('Local file cache byte count mismatch');
+		if (dataStat.size !== metadata.size) throw sizeMismatch(file, dataStat.size);
 		const sidecarTemp = tempPath(paths.sidecar);
 		let dataPublished = false;
 		try {
@@ -149,7 +156,7 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 			try {
 				await fsp.mkdir(rootDir, { recursive: true });
 				await pipeline(stream, counter, createWriteStream(dataTemp, { flags: 'wx' }));
-				if (bytes !== Number(file.size || 0)) throw new Error('Local file cache byte count mismatch');
+				if (bytes !== Number(file.size || 0)) throw sizeMismatch(file, bytes);
 				await publish(dataTemp, file, publication);
 			} catch (error) {
 				await fsp.rm(dataTemp, { force: true });

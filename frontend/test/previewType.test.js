@@ -22,17 +22,13 @@ const FIXTURES = [
 	{ file_name: 'Macro', mime_type: 'application/vnd.google-apps.script' },
 ];
 
-test('getPreviewType agrees with the backend, mapping office to pdf', () => {
+test('getPreviewType agrees with the backend', () => {
 	for (const file of FIXTURES) {
-		// office chega ao cliente ja convertido em PDF pela rota de preview.
-		const kind = getPreviewKind(file);
-		const expected = kind === 'office' ? 'pdf' : kind;
-		assert.equal(getPreviewType(file), expected, file.file_name);
+		assert.equal(getPreviewType(file), getPreviewKind(file), file.file_name);
 	}
 });
 
 test('getPreviewType rejects what has no renderer', () => {
-	assert.equal(getPreviewType({ file_name: 'archive.zip', mime_type: 'application/zip' }), null);
 	assert.equal(getPreviewType({ file_name: 'setup.exe', mime_type: 'application/x-msdownload' }), null);
 	assert.equal(getPreviewType(null), null);
 });

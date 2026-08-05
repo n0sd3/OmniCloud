@@ -308,6 +308,15 @@ export const api = {
 	previewUrl(fileId) {
 		return `${API_BASE_URL}/files/${fileId}/preview`;
 	},
+	previewPages(fileId) {
+		return request(`/files/${fileId}/preview/pages`);
+	},
+	previewEntries(fileId) {
+		return request(`/files/${fileId}/preview/entries`);
+	},
+	previewPageUrl(fileId, page) {
+		return `${API_BASE_URL}/files/${fileId}/preview/page/${page}`;
+	},
 	async previewText(fileId) {
 		const response = await fetch(`${API_BASE_URL}/files/${fileId}/preview`, { credentials: 'include' });
 		if (!response.ok) throw new Error(`Preview request failed with ${response.status}`);

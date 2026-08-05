@@ -458,11 +458,17 @@
 	"preview": {
 		"loading": "Memuat preview...",
 		"notAvailable": "Preview belum tersedia untuk tipe file ini.",
-		"document": "Preview dokumen",
 		"failed": "Preview gagal dimuat. Beberapa file provider memang tidak kompatibel untuk preview ringan.",
 		"previous": "File sebelumnya",
 		"next": "File berikutnya",
-		"zoomHint": "Klik untuk zoom, gulir untuk menyesuaikan"
+		"position": "{current} dari {total}",
+		"pageOf": "Halaman {page}",
+		"openSource": "Lihat sumber",
+		"openRendered": "Lihat hasil render",
+		"speed": "Kecepatan",
+		"pictureInPicture": "Picture-in-picture",
+		"entries": "{count} item",
+		"truncatedEntries": "Menampilkan {count} item pertama"
 	},
 	"inspector": {
 		"title": "Detail",

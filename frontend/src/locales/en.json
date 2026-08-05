@@ -458,11 +458,17 @@
 	"preview": {
 		"loading": "Loading preview...",
 		"notAvailable": "Preview is not available for this file type.",
-		"document": "Document preview",
 		"failed": "Preview failed to load. Some provider files are not compatible with lightweight preview.",
 		"previous": "Previous file",
 		"next": "Next file",
-		"zoomHint": "Click to zoom, scroll to adjust"
+		"position": "{current} of {total}",
+		"pageOf": "Page {page}",
+		"openSource": "View source",
+		"openRendered": "View rendered",
+		"speed": "Speed",
+		"pictureInPicture": "Picture-in-picture",
+		"entries": "{count} items",
+		"truncatedEntries": "Showing the first {count} items"
 	},
 	"inspector": {
 		"title": "Details",

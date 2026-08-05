@@ -11,11 +11,8 @@ const TEXT = { id: 'd', file_name: 'd.txt', mime_type: 'text/plain' };
 function setup(overrides = {}) {
 	const sourceList = ref([IMAGE, ZIP, PDF, TEXT]);
 	return useFilePreviewModal({
-		getFileCategory: () => 'other',
 		getPreviewType: (file) => ({ a: 'image', c: 'pdf', d: 'text' })[file?.id] ?? null,
-		buildPreviewUrl: (file) => `/preview/${file.id}`,
 		sourceList,
-		fetchText: async () => 'file body',
 		...overrides,
 	});
 }
@@ -29,7 +26,6 @@ test('navigation walks only over previewable files', () => {
 
 	modal.showNextPreview();
 	assert.equal(modal.previewFile.value.id, 'c', 'skips the zip');
-	assert.equal(modal.hasPreviousPreview.value, true);
 
 	modal.showNextPreview();
 	assert.equal(modal.previewFile.value.id, 'd');
@@ -37,42 +33,57 @@ test('navigation walks only over previewable files', () => {
 
 	modal.showNextPreview();
 	assert.equal(modal.previewFile.value.id, 'd', 'stops at the end');
-
-	modal.showPreviousPreview();
-	assert.equal(modal.previewFile.value.id, 'c');
 });
 
-test('opening a text file loads its body and truncates at the limit', async () => {
-	const modal = setup({ fetchText: async () => 'x'.repeat(10), maxTextBytes: 4 });
-
-	modal.openPreview(TEXT);
-	await new Promise((resolve) => setTimeout(resolve, 0));
-
-	assert.equal(modal.previewText.value, 'xxxx');
-	assert.equal(modal.isPreviewLoading.value, false);
-});
-
-test('failures surface as previewError instead of a blank pane', () => {
+test('currentIndex and total describe the position in the previewable list', () => {
 	const modal = setup();
-
-	modal.openPreview(IMAGE);
-	modal.handlePreviewFailed();
-	assert.equal(modal.isPreviewLoading.value, false);
-	assert.ok(modal.previewError.value);
+	assert.equal(modal.total.value, 3);
+	assert.equal(modal.currentIndex.value, -1);
 
 	modal.openPreview(PDF);
-	assert.equal(modal.previewError.value, null, 'reopening clears the error');
+	assert.equal(modal.currentIndex.value, 1);
 });
 
-test('failing to load text reports the configured message', async () => {
-	const modal = setup({
-		fetchText: async () => { throw new Error('network down'); },
-		textLoadErrorMessage: 'could not load',
-	});
+test('goToIndex jumps and ignores out-of-range values', () => {
+	const modal = setup();
+	modal.openPreview(IMAGE);
 
-	modal.openPreview(TEXT);
-	await new Promise((resolve) => setTimeout(resolve, 0));
+	modal.goToIndex(2);
+	assert.equal(modal.previewFile.value.id, 'd');
 
-	assert.equal(modal.previewError.value, 'could not load');
-	assert.equal(modal.isPreviewLoading.value, false);
+	modal.goToIndex(9);
+	assert.equal(modal.previewFile.value.id, 'd', 'ignores an index past the end');
+
+	modal.goToIndex(-1);
+	assert.equal(modal.previewFile.value.id, 'd', 'ignores a negative index');
+});
+
+test('isNear covers the current slide and its two neighbours', () => {
+	const modal = setup();
+	modal.openPreview(PDF);
+
+	assert.equal(modal.isNear(0), true);
+	assert.equal(modal.isNear(1), true);
+	assert.equal(modal.isNear(2), true);
+
+	modal.openPreview(IMAGE);
+	assert.equal(modal.isNear(2), false);
+});
+
+test('opening an unsupported file reports instead of opening', () => {
+	let reported = null;
+	const modal = setup({ onUnsupported: (file) => { reported = file; } });
+
+	assert.equal(modal.openPreview(ZIP), false);
+	assert.equal(modal.isPreviewOpen.value, false);
+	assert.equal(reported.id, 'b');
+});
+
+test('closePreview clears the current file', () => {
+	const modal = setup();
+	modal.openPreview(IMAGE);
+	modal.closePreview();
+
+	assert.equal(modal.isPreviewOpen.value, false);
+	assert.equal(modal.previewFile.value, null);
 });

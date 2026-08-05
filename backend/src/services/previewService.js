@@ -6,12 +6,7 @@ import { promisify } from 'node:util';
 import { env } from '../config/env.js';
 import { googleDocsExport } from '../utils/mime.js';
 import { officeToPdf, writeStreamToFile } from './fileConvert.js';
-
-const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.heic', '.jpeg', '.jpg', '.png', '.svg', '.webp']);
-const VIDEO_EXTENSIONS = new Set(['.avi', '.m4v', '.mkv', '.mov', '.mp4', '.webm']);
-const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav']);
-const OFFICE_EXTENSIONS = new Set(['.doc', '.docx', '.odp', '.ods', '.odt', '.ppt', '.pptx', '.xls', '.xlsx']);
-const TEXT_EXTENSIONS = new Set(['.csv', '.json', '.log', '.md', '.txt', '.xml', '.yaml', '.yml']);
+import { previewTypeFor } from '@omnicloud/shared';
 
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 // Conversao completa para PDF e mais pesada que gerar uma capa: 60s contra os 30s
@@ -35,22 +30,7 @@ export function effectivePreviewSource(file) {
 export function getPreviewKind(file) {
 	if (!file || file.is_folder) return null;
 	const { mimeType, extension } = effectivePreviewSource(file);
-
-	if (mimeType.startsWith('image/') || IMAGE_EXTENSIONS.has(extension)) return 'image';
-	if (mimeType.startsWith('video/') || VIDEO_EXTENSIONS.has(extension)) return 'video';
-	if (mimeType.startsWith('audio/') || AUDIO_EXTENSIONS.has(extension)) return 'audio';
-	if (mimeType === 'application/pdf' || extension === '.pdf') return 'pdf';
-	if (
-		OFFICE_EXTENSIONS.has(extension)
-		|| mimeType.includes('officedocument')
-		|| mimeType.includes('opendocument')
-		|| mimeType.includes('msword')
-		|| mimeType.includes('ms-excel')
-		|| mimeType.includes('ms-powerpoint')
-	) return 'office';
-	if (mimeType.startsWith('text/') || mimeType === 'application/json' || TEXT_EXTENSIONS.has(extension)) return 'text';
-
-	return null;
+	return previewTypeFor({ mimeType, extension });
 }
 
 export function getPreviewCacheKey(userId, file) {
@@ -65,6 +45,64 @@ function previewError(message, statusCode, cause) {
 	const error = new Error(message, cause ? { cause } : undefined);
 	error.statusCode = statusCode;
 	return error;
+}
+
+const BROWSER_HOSTILE_IMAGES = new Set(['.heic', '.heif', '.tif', '.tiff']);
+
+// Chrome e Firefox nao decodificam HEIC nem TIFF: sem conversao o preview e um
+// icone de imagem quebrada.
+export function needsImageConversion(file) {
+	if (!file || getPreviewKind(file) !== 'image') return false;
+	const { extension } = effectivePreviewSource(file);
+	return BROWSER_HOSTILE_IMAGES.has(extension);
+}
+
+export async function renderImageJpeg({
+	userId,
+	file,
+	openStream,
+	cacheDir = env.previewCacheDir,
+	execute = execFileAsync,
+	maxBytes = DEFAULT_MAX_BYTES,
+	timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
+	if (!needsImageConversion(file)) throw previewError('Image conversion is not needed', 415);
+	if (Number(file.size || 0) > maxBytes) throw previewError('File is too large for preview conversion', 415);
+
+	await fs.mkdir(cacheDir, { recursive: true });
+	const targetPath = path.join(cacheDir, `${getPreviewCacheKey(userId, file)}.jpg`);
+	try {
+		await fs.access(targetPath);
+		return targetPath;
+	} catch {
+	}
+
+	const tempDir = await fs.mkdtemp(path.join(cacheDir, '.tmp-image-'));
+	try {
+		const { extension } = effectivePreviewSource(file);
+		const safeExtension = /^\.[a-z0-9]{1,8}$/.test(extension) ? extension : '.bin';
+		const inputPath = path.join(tempDir, `source${safeExtension}`);
+		const outputPath = path.join(tempDir, 'converted.jpg');
+		await writeStreamToFile(await openStream(), inputPath, maxBytes);
+
+		// ffmpeg ja e dependencia do thumbnail e decodifica os dois formatos.
+		await execute('ffmpeg', ['-y', '-i', inputPath, '-frames:v', '1', '-q:v', '3', outputPath], {
+			timeout: timeoutMs,
+			windowsHide: true,
+			maxBuffer: 1024 * 1024,
+		});
+
+		const output = await fs.stat(outputPath);
+		if (!output.size) throw new Error('ffmpeg produced an empty image');
+
+		await fs.rename(outputPath, targetPath);
+		return targetPath;
+	} catch (error) {
+		if (error.statusCode === 415) throw error;
+		throw previewError('Preview conversion failed', 422, error);
+	} finally {
+		await fs.rm(tempDir, { recursive: true, force: true });
+	}
 }
 
 export async function renderOfficePdf({

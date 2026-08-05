@@ -91,7 +91,7 @@ export function useFileListKeyboard({
 	function handleKeydown(event) {
 		if (isEditableTarget(event.target)) return;
 
-		// Com o preview aberto, Escape e as setas pertencem ao FilePreviewModal.
+		// Com o preview aberto, Escape e as setas pertencem ao FilePreviewViewer.
 		if (isPreviewOpen.value && event.key !== ' ') return;
 
 		const isHorizontal = event.key === 'ArrowLeft' || event.key === 'ArrowRight';

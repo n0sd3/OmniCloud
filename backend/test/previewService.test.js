@@ -10,6 +10,7 @@ const {
 	getPreviewCacheKey,
 	effectivePreviewSource,
 	renderOfficePdf,
+	needsImageConversion,
 } = await import('../src/services/previewService.js');
 
 async function createCache(t) {
@@ -17,6 +18,13 @@ async function createCache(t) {
 	t.after(() => fs.rm(cacheDir, { recursive: true, force: true }));
 	return cacheDir;
 }
+
+test('needsImageConversion targets only the formats browsers refuse', () => {
+	assert.equal(needsImageConversion({ file_name: 'photo.heic' }), true);
+	assert.equal(needsImageConversion({ file_name: 'scan.TIFF' }), true);
+	assert.equal(needsImageConversion({ file_name: 'photo.jpg' }), false);
+	assert.equal(needsImageConversion({ file_name: 'clip.mp4' }), false);
+});
 
 test('getPreviewKind classifies by effective mime type', () => {
 	const cases = [
@@ -32,7 +40,7 @@ test('getPreviewKind classifies by effective mime type', () => {
 		[{ file_name: 'notes.txt', mime_type: 'text/plain' }, 'text'],
 		[{ file_name: 'data.json', mime_type: 'application/json' }, 'text'],
 		[{ file_name: 'table.csv', mime_type: 'application/octet-stream' }, 'text'],
-		[{ file_name: 'archive.zip', mime_type: 'application/zip' }, null],
+		[{ file_name: 'archive.zip', mime_type: 'application/zip' }, 'archive'],
 		[{ file_name: 'setup.exe', mime_type: 'application/x-msdownload' }, null],
 		[{ file_name: 'folder', is_folder: true }, null],
 	];

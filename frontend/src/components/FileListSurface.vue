@@ -9,10 +9,11 @@ import FileListHeader from './FileListHeader.vue';
 import FileListRow from './FileListRow.vue';
 import FileListGridCard from './FileListGridCard.vue';
 import FileListContextMenu from './FileListContextMenu.vue';
-import FilePreviewModal from './FilePreviewModal.vue';
+import FilePreviewViewer from './preview/FilePreviewViewer.vue';
 import FileInspector from './FileInspector.vue';
 import LoadingState from './LoadingState.vue';
 import { useIncrementalRender } from '../composables/useIncrementalRender';
+import { getPreviewType } from '../composables/useFileType.js';
 
 const props = defineProps({
 	view: { type: Object, required: true },
@@ -69,19 +70,18 @@ const {
 	isPrimarySelectedStarred,
 	canOpenSelection,
 	canPreviewSelection,
-	previewFile,
 	isPreviewOpen,
-	isPreviewLoading,
-	previewError,
-	previewText,
+	previewableFiles,
+	currentIndex,
+	previewTotal,
 	hasPreviousPreview,
 	hasNextPreview,
 	openPreview,
 	closePreview,
 	showPreviousPreview,
 	showNextPreview,
-	handlePreviewLoaded,
-	handlePreviewFailed,
+	goToIndex,
+	isNear,
 	downloadSelection,
 	triggerDownload,
 	renameSelectedFile,
@@ -194,6 +194,6 @@ defineExpose({ renderCount });
 
 		<FileListContextMenu :context-menu-ref="contextMenuRef" :context-menu="contextMenu" :selected-count="selectedCount" :primary-selected-file="primarySelectedFile" :can-preview="canPreviewSelection" :can-toggle-star="canToggleStarSelection" :is-primary-starred="isPrimarySelectedStarred" :can-download="canDownloadSelection" :can-rename="canRename" :can-delete="allowDelete" :can-show-details="selectedCount === 1" :can-open-folder="canOpenFolder && canOpenSelection" @open-folder="emit('open-selected')" @preview="openPreview" @toggle-star="toggleSelectedFileStar" @download="downloadSelection" @rename="renameSelectedFile" @show-details="showSelectedFileDetails" @delete="deleteSelectedFile" @close="closeContextMenu" />
 
-		<FilePreviewModal :file="previewFile" :is-open="isPreviewOpen" :is-loading="isPreviewLoading" :preview-text="previewText" :preview-error="previewError" :has-previous="hasPreviousPreview" :has-next="hasNextPreview" @close="closePreview" @loaded="handlePreviewLoaded" @failed="handlePreviewFailed" @previous="showPreviousPreview" @next="showNextPreview" @download="triggerDownload(previewFile)" />
+		<FilePreviewViewer :files="previewableFiles" :current-index="currentIndex" :total="previewTotal" :is-open="isPreviewOpen" :has-previous="hasPreviousPreview" :has-next="hasNextPreview" :is-near="isNear" :preview-type-of="getPreviewType" @close="closePreview" @previous="showPreviousPreview" @next="showNextPreview" @goto="goToIndex" @download="triggerDownload" />
 	</div>
 </template>

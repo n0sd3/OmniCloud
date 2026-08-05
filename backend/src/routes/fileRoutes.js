@@ -9,7 +9,9 @@ import { requireAppUser } from '../middleware/authMiddleware.js';
 import { generateThumbnail, getThumbnailKind } from '../services/thumbnailService.js';
 import { fileCacheService } from '../services/fileCacheService.js';
 import { parseRangeHeader } from '../services/webdav.js';
-import { effectivePreviewSource, getPreviewCacheKey, getPreviewKind, renderOfficePdf } from '../services/previewService.js';
+import { effectivePreviewSource, getPreviewCacheKey, getPreviewKind, needsImageConversion, renderImageJpeg, renderOfficePdf } from '../services/previewService.js';
+import { getPdfPageCount, renderPdfPage } from '../services/pdfPageService.js';
+import { listArchiveEntries } from '../services/archiveService.js';
 import { googleDocsExport, exportedFileName } from '../utils/mime.js';
 
 const router = Router();
@@ -368,13 +370,31 @@ router.get('/files/:id/preview', async (req, res, next) => {
 			return res.status(415).json({ error: 'Preview is not supported for this file type' });
 		}
 
+		// M6: HEIC/TIFF sao convertidos e servidos como image/jpeg; o nome no
+		// Content-Disposition tem que acompanhar, senao "salvar como" grava bytes
+		// jpeg dentro de um arquivo .heic.
+		const convertsToJpeg = needsImageConversion(context.file);
+		const downloadName = convertsToJpeg
+			? `${context.file.file_name.replace(/\.[^./]+$/, '')}.jpg`
+			: context.file.file_name;
+
 		const etag = `"${getPreviewCacheKey(req.user.id, context.file)}"`;
 		res.setHeader('ETag', etag);
 		res.setHeader('Cache-Control', 'private, max-age=3600');
 		res.setHeader('Accept-Ranges', 'bytes');
-		res.setHeader('Content-Disposition', `inline; filename="${context.file.file_name}"`);
+		res.setHeader('Content-Disposition', `inline; filename="${downloadName}"`);
 		if (req.headers['if-none-match'] === etag) {
 			return res.status(304).end();
+		}
+
+		if (convertsToJpeg) {
+			const imagePath = await renderImageJpeg({
+				userId: req.user.id,
+				file: context.file,
+				openStream: openPreviewStream(req, context),
+			});
+			res.setHeader('Content-Type', 'image/jpeg');
+			return sendLocalPreview(req, res, imagePath);
 		}
 
 		if (kind === 'office') {
@@ -418,6 +438,89 @@ router.get('/files/:id/preview', async (req, res, next) => {
 
 		opened.stream.on('error', () => res.destroy());
 		opened.stream.pipe(res);
+	} catch (error) {
+		if (error.statusCode === 415 || error.statusCode === 422) {
+			return res.status(error.statusCode).json({ error: error.message });
+		}
+		next(error);
+	}
+});
+
+function openPreviewStream(req, context) {
+	return async () => (await fileCacheService.openFile({
+		userId: req.user.id,
+		file: context.file,
+		adapter: context.adapter,
+	})).stream;
+}
+
+router.get('/files/:id/preview/pages', async (req, res, next) => {
+	try {
+		const context = await getFileContext(req.user.id, req.params.id);
+		if (!ensureFileContext(context, res)) return;
+
+		if (context.file.is_folder) {
+			return res.status(400).json({ error: 'Folder preview is not supported' });
+		}
+
+		const pageCount = await getPdfPageCount({
+			userId: req.user.id,
+			file: context.file,
+			openStream: openPreviewStream(req, context),
+		});
+		res.setHeader('Cache-Control', 'private, max-age=3600');
+		return res.json({ pageCount });
+	} catch (error) {
+		// getPdfPageCount nunca lanca 404: so o range de pagina especifico lanca.
+		if (error.statusCode === 415 || error.statusCode === 422) {
+			return res.status(error.statusCode).json({ error: error.message });
+		}
+		next(error);
+	}
+});
+
+router.get('/files/:id/preview/page/:page', async (req, res, next) => {
+	try {
+		const context = await getFileContext(req.user.id, req.params.id);
+		if (!ensureFileContext(context, res)) return;
+
+		if (context.file.is_folder) {
+			return res.status(400).json({ error: 'Folder preview is not supported' });
+		}
+
+		const pagePath = await renderPdfPage({
+			userId: req.user.id,
+			file: context.file,
+			page: req.params.page,
+			openStream: openPreviewStream(req, context),
+		});
+		res.setHeader('Content-Type', 'image/jpeg');
+		res.setHeader('Cache-Control', 'private, max-age=86400');
+		createReadStream(pagePath).on('error', next).pipe(res);
+	} catch (error) {
+		if (error.statusCode === 404 || error.statusCode === 415 || error.statusCode === 422) {
+			return res.status(error.statusCode).json({ error: error.message });
+		}
+		next(error);
+	}
+});
+
+router.get('/files/:id/preview/entries', async (req, res, next) => {
+	try {
+		const context = await getFileContext(req.user.id, req.params.id);
+		if (!ensureFileContext(context, res)) return;
+
+		if (context.file.is_folder) {
+			return res.status(400).json({ error: 'Folder preview is not supported' });
+		}
+
+		const listing = await listArchiveEntries({
+			userId: req.user.id,
+			file: context.file,
+			openStream: openPreviewStream(req, context),
+		});
+		res.setHeader('Cache-Control', 'private, max-age=3600');
+		return res.json(listing);
 	} catch (error) {
 		if (error.statusCode === 415 || error.statusCode === 422) {
 			return res.status(error.statusCode).json({ error: error.message });
