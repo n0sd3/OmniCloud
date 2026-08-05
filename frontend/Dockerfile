@@ -7,16 +7,18 @@ ARG VITE_WS_BASE_URL=/ws/uploads
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV VITE_WS_BASE_URL=$VITE_WS_BASE_URL
 
-COPY frontend/package*.json ./
-RUN npm ci
+COPY package.json package-lock.json ./
+COPY frontend/package.json ./frontend/package.json
+COPY shared ./shared
+RUN npm ci --workspace=frontend --include-workspace-root
 
-COPY frontend/ ./
-RUN npm run build
+COPY frontend/ ./frontend/
+RUN npm run build --workspace=frontend
 
 FROM nginx:1.27-alpine AS runtime
 
 COPY frontend/docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/frontend/dist /usr/share/nginx/html
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
