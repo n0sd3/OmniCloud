@@ -65,9 +65,15 @@ fileCacheService.cleanupTemps().catch((error) => {
 	console.error('File cache temp cleanup failed:', error);
 });
 
+// thumbnailCacheDir cresce do mesmo jeito que previewCacheDir (e mais, com a
+// thumb strip desta branch gerando mais miniaturas) — mesma varredura, so que
+// chamada pros dois diretorios, em vez de um segundo sweeper.
 function runPreviewCacheSweep() {
 	sweepPreviewCache(env.previewCacheDir).catch((error) => {
 		console.error('Preview cache sweep failed:', error);
+	});
+	sweepPreviewCache(env.thumbnailCacheDir).catch((error) => {
+		console.error('Thumbnail cache sweep failed:', error);
 	});
 }
 runPreviewCacheSweep();
