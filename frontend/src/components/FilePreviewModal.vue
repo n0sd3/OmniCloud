@@ -6,14 +6,11 @@ import { useI18n } from 'vue-i18n';
 const props = defineProps({
 	file: { type: Object, default: null },
 	isOpen: { type: Boolean, default: false },
-	isLoading: { type: Boolean, default: false },
-	previewText: { type: String, default: null },
-	previewError: { type: String, default: null },
 	hasPrevious: { type: Boolean, default: false },
 	hasNext: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['close', 'loaded', 'failed', 'previous', 'next', 'download']);
+const emit = defineEmits(['close', 'previous', 'next', 'download']);
 
 const { t } = useI18n();
 
@@ -85,36 +82,26 @@ function onWheelZoom(event) {
 				</div>
 			</div>
 			<div class="relative min-h-[420px] flex-1 overflow-auto bg-[#f8fafd] dark:bg-slate-950">
-				<div v-if="props.isLoading && !props.previewError" class="absolute inset-0 z-10 grid place-items-center text-sm text-[#5f6368] dark:text-slate-400">
-					{{ t('preview.loading') }}
+				<div v-if="props.file?.previewType === 'image'" class="grid min-h-[420px] place-items-center overflow-auto" :title="t('preview.zoomHint')" @wheel="onWheelZoom">
+					<img :src="props.file?.previewUrl" class="max-h-[75vh] w-full origin-center object-contain transition-transform" :style="{ transform: `scale(${zoom})`, cursor: zoom > 1 ? 'zoom-out' : 'zoom-in' }" alt="Preview file" @click="toggleZoom" />
 				</div>
 
-				<div v-if="props.previewError" class="grid min-h-[420px] place-items-center px-6 text-center text-sm text-[#5f6368] dark:text-slate-400">
-					<div>
-						<p>{{ props.previewError }}</p>
-						<button type="button" class="mt-4 rounded-full bg-[#1a73e8] px-5 py-2 text-sm font-medium text-white" @click="emit('download')">
-							{{ t('common.download') }}
-						</button>
-					</div>
-				</div>
-
-				<div v-else-if="props.file?.previewType === 'image'" class="grid min-h-[420px] place-items-center overflow-auto" :title="t('preview.zoomHint')" @wheel="onWheelZoom">
-					<img :src="props.file?.previewUrl" class="max-h-[75vh] w-full origin-center object-contain transition-transform" :style="{ transform: `scale(${zoom})`, cursor: zoom > 1 ? 'zoom-out' : 'zoom-in' }" alt="Preview file" @click="toggleZoom" @load="emit('loaded')" @error="emit('failed')" />
-				</div>
-
-				<video v-else-if="props.file?.previewType === 'video'" class="max-h-[75vh] w-full bg-black" controls playsinline @loadeddata="emit('loaded')" @error="emit('failed')">
+				<video v-else-if="props.file?.previewType === 'video'" class="max-h-[75vh] w-full bg-black" controls playsinline>
 					<source :src="props.file?.previewUrl" :type="props.file?.mime_type || 'video/mp4'" />
 				</video>
 
 				<div v-else-if="props.file?.previewType === 'audio'" class="grid min-h-[420px] place-items-center px-6">
-					<audio class="w-full max-w-xl" controls @loadeddata="emit('loaded')" @error="emit('failed')">
+					<audio class="w-full max-w-xl" controls>
 						<source :src="props.file?.previewUrl" :type="props.file?.mime_type || 'audio/mpeg'" />
 					</audio>
 				</div>
 
-				<iframe v-else-if="props.file?.previewType === 'pdf' || props.file?.previewType === 'office'" :src="props.file?.previewUrl" class="h-[75vh] w-full border-0" :title="t('preview.document')" @load="emit('loaded')" />
+				<iframe v-else-if="props.file?.previewType === 'pdf' || props.file?.previewType === 'office'" :src="props.file?.previewUrl" class="h-[75vh] w-full border-0" :title="t('preview.document')" />
 
-				<pre v-else-if="props.file?.previewType === 'text'" class="h-[75vh] w-full overflow-auto whitespace-pre-wrap break-words px-5 py-4 font-mono text-xs leading-relaxed">{{ props.previewText }}</pre>
+				<!-- componente morre na proxima task, entao texto so mostra o aviso fixo em vez de carregar conteudo -->
+				<div v-else-if="props.file?.previewType === 'text'" class="grid min-h-[420px] place-items-center text-sm text-[#5f6368] dark:text-slate-400">
+					{{ t('preview.loading') }}
+				</div>
 
 				<div v-else class="grid min-h-[420px] place-items-center px-6 text-center text-sm text-[#5f6368] dark:text-slate-400">
 					<div>

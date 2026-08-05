@@ -71,17 +71,17 @@ const {
 	canPreviewSelection,
 	previewFile,
 	isPreviewOpen,
-	isPreviewLoading,
-	previewError,
-	previewText,
+	previewableFiles,
+	currentIndex,
+	previewTotal,
 	hasPreviousPreview,
 	hasNextPreview,
 	openPreview,
 	closePreview,
 	showPreviousPreview,
 	showNextPreview,
-	handlePreviewLoaded,
-	handlePreviewFailed,
+	goToIndex,
+	isNear,
 	downloadSelection,
 	triggerDownload,
 	renameSelectedFile,
@@ -194,6 +194,6 @@ defineExpose({ renderCount });
 
 		<FileListContextMenu :context-menu-ref="contextMenuRef" :context-menu="contextMenu" :selected-count="selectedCount" :primary-selected-file="primarySelectedFile" :can-preview="canPreviewSelection" :can-toggle-star="canToggleStarSelection" :is-primary-starred="isPrimarySelectedStarred" :can-download="canDownloadSelection" :can-rename="canRename" :can-delete="allowDelete" :can-show-details="selectedCount === 1" :can-open-folder="canOpenFolder && canOpenSelection" @open-folder="emit('open-selected')" @preview="openPreview" @toggle-star="toggleSelectedFileStar" @download="downloadSelection" @rename="renameSelectedFile" @show-details="showSelectedFileDetails" @delete="deleteSelectedFile" @close="closeContextMenu" />
 
-		<FilePreviewModal :file="previewFile" :is-open="isPreviewOpen" :is-loading="isPreviewLoading" :preview-text="previewText" :preview-error="previewError" :has-previous="hasPreviousPreview" :has-next="hasNextPreview" @close="closePreview" @loaded="handlePreviewLoaded" @failed="handlePreviewFailed" @previous="showPreviousPreview" @next="showNextPreview" @download="triggerDownload(previewFile)" />
+		<FilePreviewModal :file="previewFile" :is-open="isPreviewOpen" :has-previous="hasPreviousPreview" :has-next="hasNextPreview" @close="closePreview" @previous="showPreviousPreview" @next="showNextPreview" @download="triggerDownload(previewFile)" />
 	</div>
 </template>
