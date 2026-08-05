@@ -3,6 +3,8 @@ import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { IconChevronLeft, IconChevronRight, IconDownload, IconX } from '@tabler/icons-vue';
 import { useI18n } from 'vue-i18n';
 import PreviewSlide from './PreviewSlide.vue';
+import PreviewThumbStrip from './PreviewThumbStrip.vue';
+import { usePreviewChrome } from '../../composables/usePreviewChrome.js';
 
 const props = defineProps({
 	files: { type: Array, default: () => [] },
@@ -17,6 +19,23 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'previous', 'next', 'goto', 'download']);
 const { t } = useI18n();
+
+const chrome = usePreviewChrome();
+const dragStartY = ref(null);
+
+function onTouchStart(event) {
+	dragStartY.value = event.touches[0]?.clientY ?? null;
+}
+
+function onTouchEnd(event) {
+	const start = dragStartY.value;
+	dragStartY.value = null;
+	if (start === null) return;
+	const end = event.changedTouches[0]?.clientY ?? start;
+	// Imagem ampliada usa o arrasto para pan; fechar so quando o gesto e claro
+	// e vertical o bastante para nao competir com o swipe lateral.
+	if (end - start > 120) emit('close');
+}
 
 const trackRef = ref(null);
 let observer = null;
@@ -79,6 +98,7 @@ watch(() => props.files.length, async () => {
 
 watch(() => props.currentIndex, () => {
 	if (props.isOpen) scrollToCurrent();
+	chrome.show();
 });
 
 onBeforeUnmount(() => {
@@ -93,16 +113,23 @@ function displayName(file) {
 </script>
 
 <template>
-	<div v-if="props.isOpen && props.total" class="fixed inset-0 z-50 bg-black/95">
-		<div class="absolute inset-x-0 top-0 z-20 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 text-white">
+	<div
+		v-if="props.isOpen && props.total"
+		class="fixed inset-0 z-50 bg-black/95"
+		@click="chrome.toggle()"
+		@mousemove="chrome.show()"
+		@touchstart="onTouchStart"
+		@touchend="onTouchEnd"
+	>
+		<div v-show="chrome.visible.value" class="absolute inset-x-0 top-0 z-20 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 text-white transition-opacity">
 			<div class="min-w-0 flex-1">
 				<p class="truncate text-sm font-semibold">{{ displayName(props.files[props.currentIndex]) }}</p>
 				<p class="text-xs text-slate-300">{{ t('preview.position', { current: props.currentIndex + 1, total: props.total }) }}</p>
 			</div>
-			<button type="button" class="grid size-10 shrink-0 place-items-center rounded-full hover:bg-white/10" :title="t('common.download')" @click="emit('download', props.files[props.currentIndex])">
+			<button type="button" class="grid size-10 shrink-0 place-items-center rounded-full hover:bg-white/10" :title="t('common.download')" @click.stop="emit('download', props.files[props.currentIndex])">
 				<IconDownload :size="20" :stroke="2" />
 			</button>
-			<button type="button" class="grid size-10 shrink-0 place-items-center rounded-full hover:bg-white/10" :title="t('common.close')" @click="emit('close')">
+			<button type="button" class="grid size-10 shrink-0 place-items-center rounded-full hover:bg-white/10" :title="t('common.close')" @click.stop="emit('close')">
 				<IconX :size="20" :stroke="2" />
 			</button>
 		</div>
@@ -122,11 +149,15 @@ function displayName(file) {
 			/>
 		</div>
 
-		<button v-if="props.hasPrevious" type="button" class="absolute left-4 top-1/2 z-20 hidden size-12 -translate-y-1/2 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70 sm:grid" :title="t('preview.previous')" @click="emit('previous')">
+		<button v-show="chrome.visible.value" v-if="props.hasPrevious" type="button" class="absolute left-4 top-1/2 z-20 hidden size-12 -translate-y-1/2 place-items-center rounded-full bg-black/50 text-white transition-opacity hover:bg-black/70 sm:grid" :title="t('preview.previous')" @click.stop="emit('previous')">
 			<IconChevronLeft :size="24" :stroke="2" />
 		</button>
-		<button v-if="props.hasNext" type="button" class="absolute right-4 top-1/2 z-20 hidden size-12 -translate-y-1/2 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70 sm:grid" :title="t('preview.next')" @click="emit('next')">
+		<button v-show="chrome.visible.value" v-if="props.hasNext" type="button" class="absolute right-4 top-1/2 z-20 hidden size-12 -translate-y-1/2 place-items-center rounded-full bg-black/50 text-white transition-opacity hover:bg-black/70 sm:grid" :title="t('preview.next')" @click.stop="emit('next')">
 			<IconChevronRight :size="24" :stroke="2" />
 		</button>
+
+		<div v-show="chrome.visible.value" class="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 to-transparent transition-opacity">
+			<PreviewThumbStrip :files="props.files" :current-index="props.currentIndex" @goto="emit('goto', $event)" />
+		</div>
 	</div>
 </template>
