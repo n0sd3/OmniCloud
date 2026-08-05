@@ -1,8 +1,10 @@
 FROM node:22-bookworm-slim AS deps
 
 WORKDIR /app
-COPY backend/package*.json ./
-RUN npm ci --omit=dev
+COPY package.json package-lock.json ./
+COPY backend/package.json ./backend/package.json
+COPY shared/package.json ./shared/package.json
+RUN npm ci --omit=dev --workspace=backend --include-workspace-root
 
 FROM node:22-bookworm-slim AS runtime
 
@@ -23,6 +25,7 @@ RUN apt-get update \
 COPY --from=deps /app/node_modules ./node_modules
 COPY backend/package*.json ./
 COPY backend/src ./src
+COPY shared ./shared
 
 RUN mkdir -p /app/data /app/cache/files
 
