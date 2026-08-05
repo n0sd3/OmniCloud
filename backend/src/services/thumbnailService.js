@@ -7,7 +7,6 @@ import { env } from '../config/env.js';
 import { officeToPdf, writeStreamToFile } from './fileConvert.js';
 import { extensionOf, THUMBNAIL_DOCUMENT_EXTENSIONS, THUMBNAIL_TEXT_EXTENSIONS, THUMBNAIL_VIDEO_EXTENSIONS } from '@omnicloud/shared';
 
-const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const execFileAsync = promisify(execFile);
 
@@ -93,7 +92,7 @@ export async function generateThumbnail({
 	openStream,
 	cacheDir = env.thumbnailCacheDir,
 	execute = execFileAsync,
-	maxBytes = DEFAULT_MAX_BYTES,
+	maxBytes = Infinity,
 	timeoutMs = DEFAULT_TIMEOUT_MS,
 }) {
 	const kind = getThumbnailKind(file);

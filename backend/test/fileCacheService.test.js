@@ -149,6 +149,30 @@ test('cache miss returns remote stream without waiting for background warming', 
 	releaseWarm();
 });
 
+test('ranged read on a large file skips background warming to avoid competing with the live stream', async () => {
+	let warmed = false;
+	const largeFile = { ...file, size: 200 * 1024 * 1024 };
+	const adapter = createAdapter({ getStream: () => Readable.from(['partial']) });
+	const store = createStore({ write: () => { warmed = true; } });
+	const cache = createFileCacheService({ store });
+
+	const opened = await cache.openFile({ userId: 'u1', file: largeFile, adapter, range: { start: 0, end: 1 } });
+	assert.equal(await read(opened.stream), 'partial');
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(warmed, false);
+});
+
+test('ranged read on a small file still warms the cache', async () => {
+	let warmed = false;
+	const adapter = createAdapter({ getStream: () => Readable.from(['partial']) });
+	const store = createStore({ write: () => { warmed = true; } });
+	const cache = createFileCacheService({ store });
+
+	const opened = await cache.openFile({ userId: 'u1', file, adapter, range: { start: 0, end: 1 } });
+	assert.equal(await read(opened.stream), 'partial');
+	await waitFor(() => warmed);
+});
+
 test('cache hit never calls the adapter', async () => {
 	const adapter = createAdapter({ getStream: () => { throw new Error('cache hit opened provider'); } });
 	const cache = createFileCacheService({ store: createStore({ cached: true }) });

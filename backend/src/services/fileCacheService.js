@@ -2,6 +2,8 @@ import { env } from '../config/env.js';
 import { createLocalFileStore } from './localFileStore.js';
 import { googleDocsExport } from '../utils/mime.js';
 
+const WARM_SKIP_THRESHOLD_BYTES = 100 * 1024 * 1024;
+
 function versionOf(file) {
 	return file.remote_modified_time || file.modifiedTime || null;
 }
@@ -103,7 +105,16 @@ export function createFileCacheService({
 		async openFile({ userId, file, adapter, range = {} }) {
 			const local = await store.openReadStream(file, range);
 			if (local) return { stream: local, cached: true };
-			void warmFile({ userId, file, adapter }).catch(warmFailed);
+			// Range num arquivo pequeno: warm em paralelo e barato, mantem o comportamento
+			// de "esquenta o cache na primeira leitura" mesmo pra requests parciais.
+			// Range num arquivo grande (video tocando) e outra historia: warm baixa o
+			// arquivo inteiro pela mesma conta do provider que ja esta servindo o stream
+			// ao vivo - em provider com slot de download limitado por conta (Mega) as duas
+			// conexoes competem, o stream trava e o timeout do preview no frontend estoura.
+			// ponytail: 100MB e o mesmo teto usado pra conversao de preview; ajustar junto
+			// se um deles mudar.
+			const isLargeRangedRead = Object.keys(range).length > 0 && Number(file.size || 0) > WARM_SKIP_THRESHOLD_BYTES;
+			if (!isLargeRangedRead) void warmFile({ userId, file, adapter }).catch(warmFailed);
 			return { stream: await adapter.getDownloadStream(file, range), cached: false };
 		},
 
