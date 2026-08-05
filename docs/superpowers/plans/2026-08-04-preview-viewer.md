@@ -2577,6 +2577,21 @@ git commit -m "feat(preview): playback speed, PiP, resume and auto-advance"
 - Consumes: `getPreviewKind` (Task 1), `writeStreamToFile`.
 - Produces: `renderImageJpeg({ userId, file, openStream, cacheDir?, execute?, timeoutMs? }): Promise<string>` e `needsImageConversion(file): boolean`.
 
+- [ ] **Step 0: Reintroduzir `tif`/`tiff` como imagem**
+
+A Task 1 tirou `'tif'` e `'tiff'` de `IMAGE_EXTENSIONS` e deixou um teste de regressão garantindo que caem em `null` — sem conversão no backend, classificá-los como imagem só trocaria "preview não disponível" por imagem quebrada. Esta task é a que traz a conversão, então é aqui que eles entram.
+
+Em `shared/src/previewTypes.js`, `IMAGE_EXTENSIONS` volta a incluir `'tif'` e `'tiff'`. Em `shared/test/previewTypes.test.js`, o teste de regressão passa a afirmar o contrário:
+
+```js
+test('tiff previews as image now that the backend converts it', () => {
+	assert.equal(previewTypeFor({ extension: 'tif' }), 'image');
+	assert.equal(previewTypeFor({ mimeType: 'application/octet-stream', extension: 'tiff' }), 'image');
+});
+```
+
+Rodar `npm --prefix shared test` antes de seguir para o Step 1.
+
 - [ ] **Step 1: Escrever o teste que falha**
 
 Em `backend/test/previewService.test.js`:
