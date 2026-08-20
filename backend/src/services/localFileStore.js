@@ -34,9 +34,22 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		.createHash('sha256')
 		.update(JSON.stringify([file.user_id, file.cloud_account_id, file.remote_file_id]))
 		.digest('hex');
+	// Estrutura espelha o caminho real (virtual_path + file_name) pra dar pra abrir o
+	// volume Docker e ver os arquivos com nome/hierarquia originais. Metadata fica numa
+	// arvore paralela oculta pra nao colidir com o nome real do arquivo.
+	const sanitizeSegment = (segment) => {
+		const clean = String(segment).replace(/[\\/]|\s/g, '_');
+		return /^\.+$/.test(clean) ? '_'.repeat(clean.length) : clean;
+	};
+	const relDirFor = (file) => (file.virtual_path || '/').split('/').filter(Boolean).map(sanitizeSegment);
 	const pathsFor = (file) => {
-		const key = keyFor(file);
-		return { data: path.join(rootDir, `${key}.data`), sidecar: path.join(rootDir, `${key}.json`) };
+		const segments = [sanitizeSegment(file.user_id), sanitizeSegment(file.cloud_account_id), ...relDirFor(file)];
+		const fileName = sanitizeSegment(file.file_name || file.remote_file_id);
+		const dataDir = path.join(rootDir, ...segments);
+		return {
+			data: path.join(dataDir, fileName),
+			sidecar: path.join(rootDir, '.meta', ...segments, `${fileName}.json`),
+		};
 	};
 	const tempPath = (target) => `${target}.${crypto.randomUUID()}.tmp`;
 	const warn = (message) => logger?.warn?.(message);
@@ -92,6 +105,10 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		const sidecarTemp = tempPath(paths.sidecar);
 		let dataPublished = false;
 		try {
+			await Promise.all([
+				fsp.mkdir(path.dirname(paths.data), { recursive: true }),
+				fsp.mkdir(path.dirname(paths.sidecar), { recursive: true }),
+			]);
 			await fsp.writeFile(sidecarTemp, JSON.stringify(metadata), { flag: 'wx' });
 			await fsp.rename(dataTemp, paths.data);
 			dataPublished = true;
@@ -154,7 +171,7 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 				},
 			});
 			try {
-				await fsp.mkdir(rootDir, { recursive: true });
+				await fsp.mkdir(path.dirname(dataTemp), { recursive: true });
 				await pipeline(stream, counter, createWriteStream(dataTemp, { flags: 'wx' }));
 				if (bytes !== Number(file.size || 0)) throw sizeMismatch(file, bytes);
 				await publish(dataTemp, file, publication);
@@ -286,16 +303,26 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 			});
 		},
 
-		async rebind(file) {
+		// `file` pode ter mudado de nome/pasta desde a ultima publicacao (rename remoto
+		// preservado no cache) - o path espelha virtual_path+file_name, entao o conteudo
+		// as vezes precisa ser movido fisicamente, nao so o sidecar reescrito.
+		async rebind(previousFile, file = previousFile) {
 			return withIdentityLock(file, async () => {
-				const { data, sidecar } = pathsFor(file);
+				const previous = pathsFor(previousFile);
+				const target = pathsFor(file);
 				try {
-					const metadata = JSON.parse(await fsp.readFile(sidecar, 'utf8'));
-					const stat = await fsp.stat(data);
+					const metadata = JSON.parse(await fsp.readFile(previous.sidecar, 'utf8'));
+					const stat = await fsp.stat(previous.data);
 					if (stat.size !== metadata.size || stat.size !== Number(file.size || 0)) return false;
-					const sidecarTemp = tempPath(sidecar);
+					const sidecarTemp = tempPath(target.sidecar);
+					await Promise.all([
+						fsp.mkdir(path.dirname(target.data), { recursive: true }),
+						fsp.mkdir(path.dirname(target.sidecar), { recursive: true }),
+					]);
 					await fsp.writeFile(sidecarTemp, JSON.stringify(metadataFor(file)), { flag: 'wx' });
-					await fsp.rename(sidecarTemp, sidecar);
+					if (target.data !== previous.data) await fsp.rename(previous.data, target.data);
+					await fsp.rename(sidecarTemp, target.sidecar);
+					if (target.sidecar !== previous.sidecar) await fsp.rm(previous.sidecar, { force: true });
 					return true;
 				} catch {
 					return false;
@@ -320,14 +347,21 @@ export function createLocalFileStore({ rootDir, logger = console }) {
 		},
 
 		async cleanupTemps() {
-			try {
-				const entries = await fsp.readdir(rootDir, { withFileTypes: true });
-				await Promise.all(entries
-					.filter((entry) => entry.isFile() && entry.name.endsWith('.tmp'))
-					.map((entry) => fsp.rm(path.join(rootDir, entry.name), { force: true })));
-			} catch {
-				// A missing or inaccessible cache directory has no temporary files to clean.
+			async function walk(dir) {
+				let entries;
+				try {
+					entries = await fsp.readdir(dir, { withFileTypes: true });
+				} catch {
+					return;
+				}
+				await Promise.all(entries.map((entry) => {
+					const entryPath = path.join(dir, entry.name);
+					if (entry.isDirectory()) return walk(entryPath);
+					if (entry.isFile() && entry.name.endsWith('.tmp')) return fsp.rm(entryPath, { force: true });
+					return null;
+				}));
 			}
+			await walk(rootDir);
 		},
 	};
 }

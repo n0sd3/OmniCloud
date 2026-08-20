@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,14 +25,19 @@ async function read(stream) {
 	return Buffer.concat(chunks).toString();
 }
 
+function sanitizeSegment(segment) {
+	const clean = String(segment).replace(/[\\/]|\s/g, '_');
+	return /^\.+$/.test(clean) ? '_'.repeat(clean.length) : clean;
+}
+
 function pathsFor(record) {
-	const key = crypto
-		.createHash('sha256')
-		.update(JSON.stringify([record.user_id, record.cloud_account_id, record.remote_file_id]))
-		.digest('hex');
+	const relDir = (record.virtual_path || '/').split('/').filter(Boolean).map(sanitizeSegment);
+	const segments = [sanitizeSegment(record.user_id), sanitizeSegment(record.cloud_account_id), ...relDir];
+	const fileName = sanitizeSegment(record.file_name || record.remote_file_id);
+	const dataDir = path.join(rootDir, ...segments);
 	return {
-		data: path.join(rootDir, `${key}.data`),
-		sidecar: path.join(rootDir, `${key}.json`),
+		data: path.join(dataDir, fileName),
+		sidecar: path.join(rootDir, '.meta', ...segments, `${fileName}.json`),
 	};
 }
 
@@ -312,16 +316,23 @@ test('discard releases a capture waiting for local drain', async () => {
 	}
 });
 
-test('path names hide raw identity values and incomplete temps are misses', async () => {
+test('path mirrors virtual_path and file_name for direct disk access, and incomplete temps are misses', async () => {
 	await fs.writeFile(path.join(rootDir, 'incomplete.data.tmp'), 'abcdef');
 	assert.equal(await store.getValidPath(file), null);
 
-	await store.writeFromStream(file, Readable.from(['abcdef']));
-	const validPath = await store.getValidPath(file);
-	assert.ok(validPath);
-	assert.equal(validPath.includes(file.user_id), false);
-	assert.equal(validPath.includes(file.cloud_account_id), false);
-	assert.equal(validPath.includes(file.remote_file_id), false);
+	const named = { ...file, virtual_path: '/Docs/2026', file_name: 'relatorio.pdf' };
+	await store.writeFromStream(named, Readable.from(['abcdef']));
+	const validPath = await store.getValidPath(named);
+	assert.equal(validPath, pathsFor(named).data);
+	assert.equal(path.basename(validPath), 'relatorio.pdf');
+	assert.equal(validPath.includes(`${path.sep}Docs${path.sep}2026${path.sep}`), true);
+});
+
+test('path traversal characters in names are sanitized and stay inside rootDir', async () => {
+	const malicious = { ...file, virtual_path: '/../../etc', file_name: '../passwd' };
+	await store.writeFromStream(malicious, Readable.from(['abcdef']));
+	const validPath = await store.getValidPath(malicious);
+	assert.ok(validPath.startsWith(rootDir + path.sep));
 });
 
 test('invalid JSON sidecar is a miss', async () => {

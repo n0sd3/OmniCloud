@@ -265,9 +265,16 @@ async function replaceExisting(userId, existing, uploaded, name) {
 	if (existing.remote_file_id !== promotedId) await removeExisting();
 
 	await fileCacheService.invalidate(existing);
-	// A promoção que troca o id remoto também troca a chave do cache; o que foi
-	// publicado sob o nome temporário fica órfão e é rebaixado aqui.
-	if (promotedId !== uploaded.remote_file_id) await fileCacheService.invalidate(uploaded);
+	if (promotedId !== uploaded.remote_file_id) {
+		// A promoção que troca o id remoto também troca a chave do cache; o que foi
+		// publicado sob o nome temporário fica órfão e é rebaixado aqui.
+		await fileCacheService.invalidate(uploaded);
+	} else {
+		// Chave determinística: o remote_file_id não muda, mas o path no cache
+		// espelha o file_name, então o conteúdo publicado sob o nome temporário
+		// precisa ser movido para o nome final em vez de invalidado.
+		await fileCacheService.rebind(uploaded, { ...uploaded, file_name: name, remote_file_id: promotedId });
+	}
 
 	deleteFileMetadata(userId, existing.id);
 	// Sem syncAccount: o rename já é conhecido, e uma listagem nova invalidaria o
@@ -349,7 +356,10 @@ router.move('*splat', async (req, res, next) => {
 		if (!account || account.status !== 'active') return res.status(503).end();
 
 		await createAdapter(account).renameFile(resource.file, destination.name);
-		await syncAccount(req.webdavUserId, account);
+		// Sem preserveCacheRemoteIds o rename ficaria "valido" no reconcile por
+		// versao/tamanho iguais, mas o path no cache espelha o nome antigo -
+		// preserve dispara o rebind que move os bytes pro nome novo.
+		await syncAccount(req.webdavUserId, account, { preserveCacheRemoteIds: [resource.file.remote_file_id] });
 
 		return res.status(204).end();
 	} catch (error) {

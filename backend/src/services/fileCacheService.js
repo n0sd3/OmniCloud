@@ -122,8 +122,8 @@ export function createFileCacheService({
 			return store.invalidate(file);
 		},
 
-		rebind(file) {
-			return store.rebind(file);
+		rebind(previousFile, file) {
+			return store.rebind(previousFile, file);
 		},
 
 		async reconcileAccount(previousFiles, nextFiles, options) {

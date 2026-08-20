@@ -56,8 +56,10 @@ async function reconcileCache(userId, accountId, previousFiles, preserveRemoteId
 		const nextRemoteIds = new Set(nextFiles.map((file) => String(file.remote_file_id)));
 		const preserved = new Set(preserveRemoteIds.map(String).filter((id) => nextRemoteIds.has(id)));
 		await fileCacheService.reconcileAccount(previousFiles, nextFiles, { preserveRemoteIds: [...preserved] });
+		const previousByRemoteId = new Map(previousFiles.map((file) => [String(file.remote_file_id), file]));
 		for (const file of nextFiles) {
-			if (preserved.has(String(file.remote_file_id))) await fileCacheService.rebind(file);
+			const remoteId = String(file.remote_file_id);
+			if (preserved.has(remoteId)) await fileCacheService.rebind(previousByRemoteId.get(remoteId) || file, file);
 		}
 	} catch (error) {
 		console.error(`Local cache reconciliation failed for account ${accountId}:`, error);
