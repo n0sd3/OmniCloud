@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const { ensureMount, removeMount } = await import('../../smb/provisioner.js');
+const { ensureMount, removeMount, provisionAll } = await import('../../smb/provisioner.js');
 
-function createSystem() {
+function createSystem(onRun = () => {}) {
 	const calls = [];
 	return { calls, system: {
-		run: async (command, args) => { calls.push([command, ...args]); },
+		run: async (command, args) => { calls.push([command, ...args]); onRun(command, args); },
+		setPassword: async () => {},
 		mkdir: () => {},
 		exists: () => true,
 		log: () => {},
@@ -40,4 +41,20 @@ test('monta novamente depois de desabilitar e reabilitar', async () => {
 	assert.equal(calls.filter(([command]) => command === 'fusermount3').length, 1);
 	assert.equal(calls.filter(([command]) => command === 'smbpasswd').length, 1);
 	await removeMount(user.userId, user.username, system);
+});
+
+test('um usuário que falha não impede os demais nem entra no smb.conf', async () => {
+	const broken = { userId: 'user-3', username: 'broken', webdavToken: 'token' };
+	const healthy = { userId: 'user-4', username: 'healthy', webdavToken: 'token' };
+	const { calls, system } = createSystem((command, args) => {
+		if (command === 'rclone' && args.includes(`omnicloud-${broken.userId}:`)) {
+			throw new Error('mount failed');
+		}
+	});
+
+	const provisioned = await provisionAll([broken, healthy], system);
+
+	assert.deepEqual(provisioned, [healthy]);
+	assert.equal(calls.filter(([command]) => command === 'rclone').length, 2);
+	await removeMount(healthy.userId, healthy.username, system);
 });

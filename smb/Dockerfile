@@ -1,7 +1,9 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends samba samba-common-bin rclone fuse3 procps ca-certificates \
+ # samba-vfs-modules traz catia/fruit/streams_xattr; sem ele o smbd recusa cada
+ # conexão com "vfs_init failed", porque o provisionador declara esses módulos.
+ && apt-get install -y --no-install-recommends samba samba-common-bin samba-vfs-modules rclone fuse3 procps ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 # O rclone precisa que outros usuários enxerguem o mount para o smbd servir os arquivos.

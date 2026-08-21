@@ -19,6 +19,7 @@ const SMB_CONF = '/etc/samba/smb.conf';
 const SMB_CONF_BASE = '/app/smb.conf.base';
 const system = {
 	run,
+	setPassword: setSambaPassword,
 	mkdir: mkdirSync,
 	exists: existsSync,
 	log: console.log,
@@ -117,12 +118,35 @@ async function setSambaPassword(username, password) {
 	});
 }
 
-async function ensureSystemUser(username) {
+async function ensureSystemUser(username, operations) {
 	try {
-		await run('id', [username]);
+		await operations.run('id', [username]);
 	} catch {
-		await run('useradd', ['--no-create-home', '--shell', '/usr/sbin/nologin', username]);
+		await operations.run('useradd', ['--no-create-home', '--shell', '/usr/sbin/nologin', username]);
 	}
+}
+
+async function provisionUser(user, operations) {
+	await ensureSystemUser(user.username, operations);
+	await operations.setPassword(user.username, user.password);
+	await ensureMount(user, operations);
+}
+
+// Isola por usuário: uma credencial quebrada travava o loop inteiro, deixando os
+// usuários seguintes sem conta e sem o reload da config do Samba.
+export async function provisionAll(users, operations = system) {
+	const provisioned = [];
+
+	for (const user of users) {
+		try {
+			await provisionUser(user, operations);
+			provisioned.push(user);
+		} catch (error) {
+			operations.error(`provisioning failed for ${user.username}: ${error.message}`);
+		}
+	}
+
+	return provisioned;
 }
 
 export async function ensureMount(user, operations = system) {
@@ -193,17 +217,15 @@ async function reconcile() {
 
 	writeRcloneConf(users);
 
-	for (const user of users) {
-		await ensureSystemUser(user.username);
-		await setSambaPassword(user.username, user.password);
-		await ensureMount(user);
-	}
+	const provisioned = await provisionAll(users);
 
 	for (const [userId, entry] of [...mounted]) {
 		if (!activeIds.has(userId)) await removeMount(userId, entry.username);
 	}
 
-	writeSmbConf(users);
+	// Só os provisionados: um share apontando para um diretório não montado
+	// aparece vazio, o que parece perda de arquivos.
+	writeSmbConf(provisioned);
 	await run('smbcontrol', ['all', 'reload-config']).catch(() => {});
 }
 
