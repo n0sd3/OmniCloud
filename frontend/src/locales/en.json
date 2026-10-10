@@ -477,5 +477,24 @@
 		"emptyDescription": "Select an item to see its details.",
 		"itemsSelected": "{count} items selected",
 		"totalSize": "Total size"
+	},
+	"s3Gateway": {
+		"description": "Access your unified files from an S3 client. Gateway keys are separate from provider credentials.",
+		"unavailable": "The administrator must enable S3_GATEWAY_ENABLED on the server.",
+		"enabled": "Enable S3 access for my account",
+		"endpointHint": "Set S3_GATEWAY_ENDPOINT on the server.",
+		"copy": "Copy endpoint",
+		"copied": "Copied.",
+		"copyFailed": "Clipboard unavailable. Select and copy the value manually.",
+		"created": "Created (UTC)",
+		"lastUsed": "Last used",
+		"revoke": "Revoke",
+		"rotate": "Replace credential",
+		"revoked": "Revoked",
+		"generate": "Generate new key",
+		"secretOnce": "Save this secret now. It will only be shown once.",
+		"copySecret": "Copy secret",
+		"dismiss": "I saved the secret",
+		"cli": "Configure your credentials and region with AWS CLI:"
 	}
 }

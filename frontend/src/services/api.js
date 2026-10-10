@@ -67,6 +67,14 @@ export const settingsApi = {
 	},
 };
 
+export const s3GatewayApi = {
+ get: () => request('/s3-gateway'),
+ update: payload => request('/s3-gateway', { method: 'PATCH', body: JSON.stringify(payload) }),
+ create: () => request('/s3-gateway/keys', { method: 'POST' }),
+ revoke: key => request(`/s3-gateway/keys/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+ rotate: key => request(`/s3-gateway/keys/${encodeURIComponent(key)}/rotate`, { method: 'POST' }),
+};
+
 export const smbApi = {
 	get() {
 		return request('/smb');

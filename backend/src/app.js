@@ -1,3 +1,5 @@
+import { s3Gateway } from './s3/gateway.js';
+import s3SettingsRoutes from './routes/s3SettingsRoutes.js';
 import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/authRoutes.js';
@@ -16,6 +18,7 @@ import { attachAuthContext } from './middleware/authMiddleware.js';
 
 export function createApp() {
 	const app = express();
+ app.use(s3Gateway);
 
 	// O WebDAV não é consumido por browser, então CORS não se aplica a ele — e
 	// precisa vir antes do cors(), senão o preflight genérico responde por ele
@@ -53,6 +56,7 @@ export function createApp() {
 	app.use('/api', uploadRoutes);
 	app.use('/api', megaLinkRoutes);
 	app.use('/api', settingsRoutes);
+ app.use('/api', s3SettingsRoutes);
 	app.use('/api', allocationRoutes);
 	app.use('/api', smbRoutes);
 	app.use('/internal', internalRoutes);

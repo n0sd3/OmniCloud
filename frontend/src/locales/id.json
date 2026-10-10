@@ -477,5 +477,24 @@
 		"emptyDescription": "Pilih item untuk melihat detailnya.",
 		"itemsSelected": "{count} item dipilih",
 		"totalSize": "Ukuran total"
+	},
+	"s3Gateway": {
+		"description": "Akses file terpadu melalui klien S3. Kunci gateway terpisah dari kredensial provider.",
+		"unavailable": "Administrator perlu mengaktifkan S3_GATEWAY_ENABLED pada server.",
+		"enabled": "Aktifkan akses S3 untuk akun saya",
+		"endpointHint": "Atur S3_GATEWAY_ENDPOINT pada server.",
+		"copy": "Salin endpoint",
+		"copied": "Disalin.",
+		"copyFailed": "Papan klip tidak tersedia. Pilih dan salin nilainya secara manual.",
+		"created": "Dibuat (UTC)",
+		"lastUsed": "Terakhir digunakan",
+		"revoke": "Cabut",
+		"rotate": "Ganti kredensial",
+		"revoked": "Dicabut",
+		"generate": "Buat kunci baru",
+		"secretOnce": "Simpan secret ini sekarang. Hanya ditampilkan sekali.",
+		"copySecret": "Salin secret",
+		"dismiss": "Secret sudah disimpan",
+		"cli": "Konfigurasikan kredensial dan region dengan AWS CLI:"
 	}
 }

@@ -1,3 +1,4 @@
+import { filesystemRoute } from '../services/filesystemCoordinator.js';
 import { Router } from 'express';
 import { createReadStream, statSync } from 'node:fs';
 import { listFilesByPath, getFileById, getFileByRemoteId, listRecentFiles, listStarredFiles, searchFiles, setFileStarred, updateFileStarredByRemoteId } from '../services/fileService.js';
@@ -17,6 +18,7 @@ import { googleDocsExport, exportedFileName } from '../utils/mime.js';
 const router = Router();
 
 router.use(requireAppUser);
+const operation = handler => filesystemRoute(req => req.user.id, handler);
 
 function encodeSharedFileId(accountId, remoteFileId) {
 	return `shared:${accountId}:${Buffer.from(String(remoteFileId)).toString('base64url')}`;
@@ -176,7 +178,7 @@ async function listSharedWithMeFiles(userId) {
 		});
 }
 
-router.get('/files', async (req, res, next) => {
+router.get('/files', operation(async (req, res, next) => {
 	try {
 		const requestedPath = req.query.path || '/';
 		const files = req.query.search
@@ -200,9 +202,9 @@ router.get('/files', async (req, res, next) => {
 	} catch (error) {
 		next(error);
 	}
-});
+}));
 
-router.get('/files/:id/shared-children', async (req, res, next) => {
+router.get('/files/:id/shared-children', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) {
@@ -228,9 +230,9 @@ router.get('/files/:id/shared-children', async (req, res, next) => {
 	} catch (error) {
 		next(error);
 	}
-});
+}));
 
-router.patch('/files/:id/star', async (req, res, next) => {
+router.patch('/files/:id/star', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) {
@@ -255,9 +257,9 @@ router.patch('/files/:id/star', async (req, res, next) => {
 	} catch (error) {
 		next(error);
 	}
-});
+}));
 
-router.post('/files/bulk/delete', async (req, res, next) => {
+router.post('/files/bulk/delete', operation(async (req, res, next) => {
 	try {
 		const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.filter(Boolean))] : [];
 		if (!ids.length) {
@@ -287,9 +289,9 @@ router.post('/files/bulk/delete', async (req, res, next) => {
 	} catch (error) {
 		next(error);
 	}
-});
+}));
 
-router.get('/files/:id', async (req, res, next) => {
+router.get('/files/:id', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) {
@@ -306,9 +308,9 @@ router.get('/files/:id', async (req, res, next) => {
 	} catch (error) {
 		next(error);
 	}
-});
+}));
 
-router.get('/files/:id/download', async (req, res, next) => {
+router.get('/files/:id/download', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) {
@@ -334,8 +336,7 @@ router.get('/files/:id/download', async (req, res, next) => {
 	} catch (error) {
 		next(error);
 	}
-});
-
+}));
 function sendLocalPreview(req, res, filePath) {
 	const size = statSync(filePath).size;
 	const range = parseRangeHeader(req.headers.range, size);
@@ -354,7 +355,7 @@ function sendLocalPreview(req, res, filePath) {
 	stream.pipe(res);
 }
 
-router.get('/files/:id/preview', async (req, res, next) => {
+router.get('/files/:id/preview', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) {
@@ -444,8 +445,7 @@ router.get('/files/:id/preview', async (req, res, next) => {
 		}
 		next(error);
 	}
-});
-
+}));
 function openPreviewStream(req, context) {
 	return async () => (await fileCacheService.openFile({
 		userId: req.user.id,
@@ -454,7 +454,7 @@ function openPreviewStream(req, context) {
 	})).stream;
 }
 
-router.get('/files/:id/preview/pages', async (req, res, next) => {
+router.get('/files/:id/preview/pages', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) return;
@@ -477,9 +477,9 @@ router.get('/files/:id/preview/pages', async (req, res, next) => {
 		}
 		next(error);
 	}
-});
+}));
 
-router.get('/files/:id/preview/page/:page', async (req, res, next) => {
+router.get('/files/:id/preview/page/:page', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) return;
@@ -503,9 +503,9 @@ router.get('/files/:id/preview/page/:page', async (req, res, next) => {
 		}
 		next(error);
 	}
-});
+}));
 
-router.get('/files/:id/preview/entries', async (req, res, next) => {
+router.get('/files/:id/preview/entries', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) return;
@@ -527,9 +527,9 @@ router.get('/files/:id/preview/entries', async (req, res, next) => {
 		}
 		next(error);
 	}
-});
+}));
 
-router.get('/files/:id/thumbnail', async (req, res, next) => {
+router.get('/files/:id/thumbnail', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) {
@@ -559,9 +559,9 @@ router.get('/files/:id/thumbnail', async (req, res, next) => {
 		}
 		next(error);
 	}
-});
+}));
 
-router.patch('/files/:id/rename', async (req, res, next) => {
+router.patch('/files/:id/rename', operation(async (req, res, next) => {
 	try {
 		const { name } = req.body;
 		if (!name?.trim()) {
@@ -582,9 +582,9 @@ router.patch('/files/:id/rename', async (req, res, next) => {
 	} catch (error) {
 		next(error);
 	}
-});
+}));
 
-router.delete('/files/:id', async (req, res, next) => {
+router.delete('/files/:id', operation(async (req, res, next) => {
 	try {
 		const context = await getFileContext(req.user.id, req.params.id);
 		if (!ensureFileContext(context, res)) {
@@ -597,9 +597,9 @@ router.delete('/files/:id', async (req, res, next) => {
 	} catch (error) {
 		next(error);
 	}
-});
+}));
 
-router.post('/files/folders', async (req, res, next) => {
+router.post('/files/folders', operation(async (req, res, next) => {
 	try {
 		const { name, virtual_path = '/' } = req.body;
 
@@ -622,6 +622,5 @@ router.post('/files/folders', async (req, res, next) => {
 	} catch (error) {
 		next(error);
 	}
-});
-
+}));
 export default router;

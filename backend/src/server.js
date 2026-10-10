@@ -1,3 +1,4 @@
+import { cleanupMultipart } from './s3/multipart.js';
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import { createApp } from './app.js';
@@ -35,6 +36,7 @@ process.on('uncaughtException', (error) => {
 
 const app = createApp();
 const server = http.createServer(app);
+if (env.s3GatewayEnabled) server.requestTimeout = env.s3RequestTimeoutMs;
 const wss = new WebSocketServer({ server, path: '/ws/uploads' });
 
 wss.on('connection', (socket, request) => {
@@ -79,6 +81,11 @@ function runPreviewCacheSweep() {
 runPreviewCacheSweep();
 setInterval(runPreviewCacheSweep, PREVIEW_CACHE_SWEEP_INTERVAL_MS);
 
+if (env.s3GatewayEnabled) {
+ const sweep=()=>cleanupMultipart().catch(()=>console.warn('S3 multipart cleanup failed'));
+ await cleanupMultipart(undefined, { startup: true });
+ setInterval(sweep, Math.min(env.s3MultipartTtlMs, 3600000)).unref();
+}
 scheduleSync();
 if (env.appMode === 'local') {
 	runDeltaSync(LOCAL_USER_ID).catch((error) => {

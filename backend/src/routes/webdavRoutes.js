@@ -1,10 +1,11 @@
+import { replaceExisting } from '../services/replaceFileService.js';
+import { filesystemRoute } from '../services/filesystemCoordinator.js';
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import {
 	listFilesByPath,
 	deleteFileMetadata,
 	createFileMetadata,
-	renameFileMetadata,
 } from '../services/fileService.js';
 import { getAccountById } from '../services/accountService.js';
 import { createAdapter } from '../services/adapterRegistry.js';
@@ -43,6 +44,7 @@ function requireWebdavAuth(req, res, next) {
 }
 
 router.use(requireWebdavAuth);
+const operation = handler => filesystemRoute(req => req.webdavUserId, handler);
 
 // Resolve o recurso pedido. A raiz não tem registro no banco, então é sintética.
 function resolveResource(userId, href) {
@@ -89,7 +91,7 @@ router.options('*splat', (_req, res) => {
 	res.status(200).end();
 });
 
-router.propfind('*splat', (req, res, next) => {
+router.propfind('*splat', operation((req, res, next) => {
 	try {
 		const resource = resolveResource(req.webdavUserId, req.path);
 		if (!resource) return res.status(404).end();
@@ -109,7 +111,7 @@ router.propfind('*splat', (req, res, next) => {
 	} catch (error) {
 		return next(error);
 	}
-});
+}));
 
 async function sendFile(req, res, { bodyless }) {
 	const resource = resolveResource(req.webdavUserId, req.path);
@@ -168,21 +170,21 @@ function failDownload(res, error) {
 	return res.status(503).end();
 }
 
-router.head('*splat', async (req, res) => {
+router.head('*splat', operation(async (req, res) => {
 	try {
 		await sendFile(req, res, { bodyless: true });
 	} catch (error) {
 		failDownload(res, error);
 	}
-});
+}));
 
-router.get('*splat', async (req, res) => {
+router.get('*splat', operation(async (req, res) => {
 	try {
 		await sendFile(req, res, { bodyless: false });
 	} catch (error) {
 		failDownload(res, error);
 	}
-});
+}));
 
 // O rclone manda o Destination como URL absoluta.
 function parseDestination(header) {
@@ -192,7 +194,7 @@ function parseDestination(header) {
 	return parseDavPath(pathname, BASE_PATH);
 }
 
-router.mkcol('*splat', async (req, res, next) => {
+router.mkcol('*splat', operation(async (req, res, next) => {
 	try {
 		const { parentPath, name } = parseDavPath(req.path, BASE_PATH);
 		if (!name) return res.status(405).end();
@@ -230,59 +232,9 @@ router.mkcol('*splat', async (req, res, next) => {
 	} catch (error) {
 		return next(error);
 	}
-});
+}));
 
-// ponytail: sobrescrever é upload novo + promoção do nome — os adapters não têm
-// "trocar conteúdo". Perde histórico de versões do provider. Upgrade quando
-// algum adapter expuser update de conteúdo.
-async function replaceExisting(userId, existing, uploaded, name) {
-	const account = getAccountById(userId, uploaded.cloud_account_id);
-	const adapter = createAdapter(account);
-
-	let removedExisting = false;
-	const removeExisting = async () => {
-		if (removedExisting) return;
-		removedExisting = true;
-		const previousAccount = getAccountById(userId, existing.cloud_account_id);
-		if (previousAccount) await createAdapter(previousAccount).deleteFile(existing);
-	};
-
-	let renamed;
-	try {
-		renamed = await adapter.renameFile(uploaded, name);
-	} catch (error) {
-		// Provider de chave derivada do caminho recusa promover para um nome
-		// ocupado. Os bytes novos já estão no remoto, então apagar o antigo aqui
-		// não perde conteúdo.
-		await removeExisting();
-		renamed = await adapter.renameFile(uploaded, name);
-	}
-
-	const promotedId = renamed?.remoteFileId || uploaded.remote_file_id;
-
-	// Em provider de chave determinística a promoção já sobrescreveu o objeto
-	// antigo: apagar pelo remote_file_id agora apagaria justamente o conteúdo novo.
-	if (existing.remote_file_id !== promotedId) await removeExisting();
-
-	await fileCacheService.invalidate(existing);
-	if (promotedId !== uploaded.remote_file_id) {
-		// A promoção que troca o id remoto também troca a chave do cache; o que foi
-		// publicado sob o nome temporário fica órfão e é rebaixado aqui.
-		await fileCacheService.invalidate(uploaded);
-	} else {
-		// Chave determinística: o remote_file_id não muda, mas o path no cache
-		// espelha o file_name, então o conteúdo publicado sob o nome temporário
-		// precisa ser movido para o nome final em vez de invalidado.
-		await fileCacheService.rebind(uploaded, { ...uploaded, file_name: name, remote_file_id: promotedId });
-	}
-
-	deleteFileMetadata(userId, existing.id);
-	// Sem syncAccount: o rename já é conhecido, e uma listagem nova invalidaria o
-	// cache que o próprio upload acabou de publicar.
-	renameFileMetadata(userId, uploaded.id, name, promotedId);
-}
-
-router.put('*splat', async (req, res) => {
+router.put('*splat', operation(async (req, res) => {
 	try {
 		const { parentPath, name } = parseDavPath(req.path, BASE_PATH);
 		if (!name) return res.status(405).end();
@@ -318,9 +270,9 @@ router.put('*splat', async (req, res) => {
 		// Falha de escrita no provider é erro do backend remoto, não do cliente.
 		return res.status(502).end();
 	}
-});
+}));
 
-router.delete('*splat', async (req, res, next) => {
+router.delete('*splat', operation(async (req, res, next) => {
 	try {
 		const resource = resolveResource(req.webdavUserId, req.path);
 		if (!resource || resource.isRoot) return res.status(404).end();
@@ -336,9 +288,9 @@ router.delete('*splat', async (req, res, next) => {
 	} catch (error) {
 		return next(error);
 	}
-});
+}));
 
-router.move('*splat', async (req, res, next) => {
+router.move('*splat', operation(async (req, res, next) => {
 	try {
 		const resource = resolveResource(req.webdavUserId, req.path);
 		if (!resource || resource.isRoot) return res.status(404).end();
@@ -365,7 +317,7 @@ router.move('*splat', async (req, res, next) => {
 	} catch (error) {
 		return next(error);
 	}
-});
+}));
 
 // O rclone cai sozinho no fallback GET + PUT quando COPY não existe.
 router.copy('*splat', (_req, res) => res.status(501).end());

@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { IconMoon, IconSun, IconLanguage, IconCloud, IconLogout, IconChevronRight, IconUserPlus, IconServer } from '@tabler/icons-vue';
 import DriveShell from '../components/DriveShell.vue';
+import S3GatewaySettings from '../components/S3GatewaySettings.vue';
 import idFlag from '../assets/id.svg';
 import usFlag from '../assets/us.svg';
 import { useSettingsStore } from '../stores/settings';
@@ -110,6 +111,7 @@ onMounted(async () => {
 			<h1 class="mb-5 text-2xl font-normal text-[#202124] dark:text-slate-100">{{ t('common.settings') }}</h1>
 
 			<div class="max-w-2xl space-y-4">
+    <S3GatewaySettings />
 				<section class="rounded-2xl border border-[#e7edf6] bg-[#f8fafd] p-5 dark:border-slate-800 dark:bg-slate-800/70">
 					<h2 class="text-sm font-semibold text-[#202124] dark:text-slate-100">{{ t('common.theme') }}</h2>
 					<div class="mt-3 grid grid-cols-2 gap-2">

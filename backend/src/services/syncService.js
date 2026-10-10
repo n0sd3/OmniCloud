@@ -1,3 +1,4 @@
+import { withFilesystemLock } from './filesystemCoordinator.js';
 import cron from 'node-cron';
 import { env } from '../config/env.js';
 import { LOCAL_USER_ID } from '../config/database.js';
@@ -48,7 +49,7 @@ let lastSyncReport = {
 	changesDetected: 0,
 };
 
-let activeSyncPromise = null;
+const activeSyncs = new Map();
 
 async function reconcileCache(userId, accountId, previousFiles, preserveRemoteIds = []) {
 	const nextFiles = listFilesForAccount(userId, accountId);
@@ -66,12 +67,13 @@ async function reconcileCache(userId, accountId, previousFiles, preserveRemoteId
 	}
 }
 
-export async function runDeltaSync(userId) {
-	if (activeSyncPromise) {
-		return activeSyncPromise;
-	}
+export function runDeltaSync(userId) {
+ return withFilesystemLock(userId, () => runDeltaSyncUnlocked(userId));
+}
+async function runDeltaSyncUnlocked(userId) {
+	if (activeSyncs.has(userId)) return activeSyncs.get(userId);
 
-	activeSyncPromise = (async () => {
+	const activeSyncPromise = (async () => {
 		const accounts = getActiveAccounts(userId);
 		let changesDetected = 0;
 
@@ -99,10 +101,11 @@ export async function runDeltaSync(userId) {
 		return lastSyncReport;
 	})();
 
+ activeSyncs.set(userId, activeSyncPromise);
 	try {
 		return await activeSyncPromise;
 	} finally {
-		activeSyncPromise = null;
+		activeSyncs.delete(userId);
 	}
 }
 
@@ -121,11 +124,14 @@ export function scheduleSync() {
 export function getLastSyncReport() {
 	return {
 		...lastSyncReport,
-		isRunning: Boolean(activeSyncPromise),
+		isRunning: activeSyncs.size > 0,
 	};
 }
 
-export async function syncAccount(userId, account, options = {}) {
+export function syncAccount(userId, account, options = {}) {
+ return withFilesystemLock(userId, () => syncAccountUnlocked(userId, account, options));
+}
+async function syncAccountUnlocked(userId, account, options = {}) {
 	try {
 		const { remoteFiles, storage } = await fetchAccountSnapshot(account);
 		const previousFiles = listFilesForAccount(userId, account.id);

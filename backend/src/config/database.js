@@ -114,3 +114,52 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_user_settings_user_key
     ON user_settings(user_id, key);
 `);
+
+// Idempotent gateway migration; separate from outbound provider credentials.
+db.exec(`
+ CREATE TABLE IF NOT EXISTS s3_gateway_settings (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  enabled INTEGER NOT NULL DEFAULT 0
+ );
+ CREATE TABLE IF NOT EXISTS s3_gateway_credentials (
+  access_key_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  secret_enc TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_used_at TEXT
+ );
+ CREATE INDEX IF NOT EXISTS idx_s3_credentials_user ON s3_gateway_credentials(user_id);
+ CREATE TABLE IF NOT EXISTS s3_multipart_uploads (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  object_key TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  touched_at INTEGER NOT NULL
+ );
+ CREATE TABLE IF NOT EXISTS s3_multipart_parts (
+  upload_id TEXT NOT NULL REFERENCES s3_multipart_uploads(id) ON DELETE CASCADE,
+  part_number INTEGER NOT NULL,
+  file_name TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  md5 TEXT NOT NULL,
+  PRIMARY KEY(upload_id, part_number)
+ );
+ CREATE TABLE IF NOT EXISTS s3_object_versions (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES cloud_accounts(id) ON DELETE CASCADE,
+  remote_id TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  modified_time TEXT,
+  etag TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  PRIMARY KEY(user_id, account_id, remote_id)
+ );
+`);
+
+for (const table of ['s3_object_versions', 's3_multipart_uploads']) {
+ if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === 'metadata_json')) {
+  db.exec(`ALTER TABLE ${table} ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'`);
+ }
+}

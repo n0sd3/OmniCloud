@@ -499,3 +499,7 @@ Important data stored locally includes:
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## S3-compatible inbound gateway
+
+OmniCloud can expose its consolidated virtual filesystem as one S3 bucket per user, using dedicated encrypted gateway credentials, AWS SigV4, streaming downloads and persistent multipart uploads. See [S3 Gateway setup, compatibility, security and tests](docs/S3_GATEWAY.md). This is separate from outbound S3 provider accounts.

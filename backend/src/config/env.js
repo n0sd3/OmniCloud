@@ -15,6 +15,16 @@ const derivedKeyMaterial = `${envHalf}:${machineFingerprint}`;
 const encryptionKey = crypto.createHash('sha256').update(derivedKeyMaterial).digest();
 
 export const env = {
+ s3RequestTimeoutMs: Math.max(300000, Number(process.env.S3_REQUEST_TIMEOUT_MS) || 3600000),
+ s3GatewayEnabled: process.env.S3_GATEWAY_ENABLED === 'true',
+ s3GatewayBucket: process.env.S3_GATEWAY_BUCKET || 'omnicloud',
+ s3GatewayRegion: process.env.S3_GATEWAY_REGION || 'auto',
+ s3GatewayEndpoint: process.env.S3_GATEWAY_ENDPOINT || '',
+ s3MultipartPath: process.env.S3_MULTIPART_PATH || path.resolve(process.cwd(), 'data/s3-multipart'),
+ s3MultipartTtlMs: Math.max(1, Number(process.env.S3_MULTIPART_TTL_HOURS) || 24) * 3600000,
+ s3StagingMaxBytes: Math.max(1, Number(process.env.S3_STAGING_MAX_BYTES) || 1024 ** 4),
+ s3MaxUploadsPerUser: Math.max(1, Number(process.env.S3_MAX_UPLOADS_PER_USER) || 100),
+ s3MaxConcurrentRequests: Math.max(1, Number(process.env.S3_MAX_CONCURRENT_REQUESTS) || 32),
 	port: Number(process.env.PORT || 8787),
 	appMode: process.env.APP_MODE === 'hosted' ? 'hosted' : 'local',
 	corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',

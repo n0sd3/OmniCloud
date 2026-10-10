@@ -1,3 +1,4 @@
+import { withFilesystemLock } from './filesystemCoordinator.js';
 import Busboy from 'busboy';
 import { PassThrough } from 'stream';
 import { createAdapter } from './adapterRegistry.js';
@@ -23,7 +24,11 @@ export function needsChunkedUpload(req, size) {
 	return isBehindCloudflare(req) && Number(size) > CLOUDFLARE_MAX_BODY_BYTES;
 }
 
-export async function runUpload({ session, stream, fileName, mimeType }) {
+export function runUpload(options) {
+ return withFilesystemLock(options.session.user_id, () => runUploadUnlocked(options));
+}
+
+async function runUploadUnlocked({ session, stream, fileName, mimeType, synchronize = true, streamFactory }) {
 	let activeAccountId = session.cloud_account_id;
 	const tried = new Set();
 	let capture = { stream, discard: async () => {} };
@@ -81,7 +86,14 @@ export async function runUpload({ session, stream, fileName, mimeType }) {
 			if (!fallbackId) {
 				throw error;
 			}
-			activeAccountId = fallbackId;
+			if (!streamFactory) throw error;
+   await capture.discard();
+   capture.stream.destroy();
+   stream.destroy();
+   stream = streamFactory();
+   capture = fileCacheService.captureUpload(stream, session.id);
+   stream.once('error', error => capture.stream.destroy(error));
+   activeAccountId = fallbackId;
 			({ result: uploadResponse, account } = await attemptUpload(activeAccountId));
 		}
 
@@ -100,7 +112,7 @@ export async function runUpload({ session, stream, fileName, mimeType }) {
 			remote_parent_id: uploadResponse.remoteParentId,
 		});
 
-		await syncAccount(session.user_id, account);
+		if (synchronize) await syncAccount(session.user_id, account);
 		metadata = getFileByRemoteId(session.user_id, account.id, uploadResponse.remoteFileId) || metadata;
 		try {
 			await fileCacheService.commitCapture(capture, metadata);
@@ -128,6 +140,7 @@ export async function runUpload({ session, stream, fileName, mimeType }) {
 		throw error;
 	} finally {
 		if (forwardSourceError) stream.off('error', forwardSourceError);
+  if (streamFactory) { stream.destroy(); capture.stream.destroy(); }
 		removeUploadSession(session.id);
 		try {
 			await capture.discard();

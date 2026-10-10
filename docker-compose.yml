@@ -15,6 +15,7 @@ services:
       PORT: 8787
       DATABASE_PATH: /app/data/omnicloud.db
       FILE_CACHE_PATH: /app/cache/files
+      S3_MULTIPART_PATH: /app/data/s3-multipart
       SMB_PROVISION_SECRET: ${SMB_PROVISION_SECRET:?defina SMB_PROVISION_SECRET no .env}
       SMB_HOST: ${SMB_HOST:-omnicloud}
       MEGABASTERD_URL: http://megabasterd:8788

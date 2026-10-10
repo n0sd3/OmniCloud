@@ -25,6 +25,7 @@ export function createHealthRouter({
 		res.json({
 			status: 'ok',
 			service: 'omnicloud-api',
+   s3Gateway: { enabled: env.s3GatewayEnabled, status: env.s3GatewayEnabled ? 'enabled' : 'disabled' },
 			config: redactEnv(),
 			auth: getAuthSummary(req.user),
 			sync: getLastSyncReport(),

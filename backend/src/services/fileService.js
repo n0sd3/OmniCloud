@@ -122,7 +122,8 @@ export function getFileByRemoteId(userId, cloudAccountId, remoteFileId) {
 	return buildDisplayNames([row])[0];
 }
 
-export function listAllFiles(userId) {
+export function listAllFiles(userId, { activeOnly = false } = {}) {
+ if (activeOnly) return db.prepare("SELECT fm.* FROM file_metadata fm JOIN cloud_accounts ca ON ca.id = fm.cloud_account_id AND ca.user_id = fm.user_id WHERE fm.user_id = ? AND ca.status = 'active'").all(userId);
 	return db.prepare('SELECT * FROM file_metadata WHERE user_id = ?').all(userId);
 }
 
@@ -183,8 +184,9 @@ export function setFileStarred(userId, fileId, isStarred) {
 }
 
 export function replaceFilesForAccount(userId, cloudAccountId, records) {
+ const previousByRemoteId = new Map(listFilesForAccount(userId, cloudAccountId).map(file => [String(file.remote_file_id), file]));
 	const normalizedRecords = records.map((record) => ({
-		id: record.id || randomUUID(),
+		id: previousByRemoteId.get(String(record.remote_file_id))?.id || record.id || randomUUID(),
 		user_id: userId,
 		virtual_path: normalizePath(record.virtual_path),
 		file_name: record.file_name,
